@@ -6,7 +6,7 @@ const CORS_PROXIES = [
   (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
 ];
 
-// ── Known plugin mapping: slug → { name, category } ──
+// ── Plugin mapping: slug → { name, category } ──
 const PLUGIN_MAP: Record<string, { name: string; category: DetectedPlugin["category"] }> = {
   woocommerce: { name: "WooCommerce", category: "ecommerce" },
   "woo-commerce": { name: "WooCommerce", category: "ecommerce" },
@@ -87,7 +87,7 @@ const PLUGIN_MAP: Record<string, { name: string; category: DetectedPlugin["categ
   "happy-elementor-addons": { name: "Happy Elementor Addons", category: "page-builder" },
 };
 
-// ── Plugin HTML signatures: patterns that appear even when wp-content paths are hidden ──
+// ── Plugin signatures: HTML patterns that reveal plugins even when paths are hidden ──
 const PLUGIN_SIGNATURES: Array<{ patterns: string[]; slug: string; name: string; category: DetectedPlugin["category"] }> = [
   { patterns: ["woocommerce", "wc-", "woocommerce_params", "wc_cart_fragments", "class=\"woocommerce"], slug: "woocommerce", name: "WooCommerce", category: "ecommerce" },
   { patterns: ["elementor", "data-elementor-type", "elementor-widget", "elementor-kit"], slug: "elementor", name: "Elementor", category: "page-builder" },
@@ -140,7 +140,6 @@ const PLUGIN_SIGNATURES: Array<{ patterns: string[]; slug: string; name: string;
   { patterns: ["beaver-builder", "fl-builder"], slug: "beaver-builder", name: "Beaver Builder", category: "page-builder" },
   { patterns: ["woocommerce-subscriptions"], slug: "woocommerce-subscriptions", name: "WooCommerce Subscriptions", category: "ecommerce" },
   { patterns: ["woocommerce-memberships"], slug: "woocommerce-memberships", name: "WooCommerce Memberships", category: "membership" },
-  { patterns: ["query-monitor"], slug: "query-monitor", name: "Query Monitor", category: "other" },
   { patterns: ["wp-super-cache"], slug: "wp-super-cache", name: "WP Super Cache", category: "cache" },
   { patterns: ["wp-fastest-cache"], slug: "wp-fastest-cache", name: "WP Fastest Cache", category: "cache" },
   { patterns: ["cache-enabler"], slug: "cache-enabler", name: "Cache Enabler", category: "cache" },
@@ -155,18 +154,144 @@ const PLUGIN_SIGNATURES: Array<{ patterns: string[]; slug: string; name: string;
   { patterns: ["happy-elementor-addons"], slug: "happy-elementor-addons", name: "Happy Elementor Addons", category: "page-builder" },
 ];
 
-// ── Theme detection from HTML classes and CSS URLs ──
+// ── Fetch helpers ──
+async function fetchViaProxy(url: string): Promise<{ text: string; headers: Headers; proxy: string; statusCode: number } | null> {
+  for (const proxyFn of CORS_PROXIES) {
+    const proxyUrl = proxyFn(url);
+    try {
+      const res = await fetch(proxyUrl, { cache: "no-store" });
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (text.length < 100) continue;
+      return { text, headers: res.headers, proxy: proxyUrl.split("?")[0], statusCode: res.status };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+async function fetchDirect(url: string): Promise<{ text: string; headers: Headers; statusCode: number } | null> {
+  try {
+    const res = await fetch(url, { mode: "cors", cache: "no-store" });
+    if (!res.ok) return null;
+    return { text: await res.text(), headers: res.headers, statusCode: res.status };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAny(url: string, proxyUsed: string | null): Promise<{ text: string; headers: Headers; statusCode: number; via: string } | null> {
+  const direct = await fetchDirect(url);
+  if (direct) return { ...direct, via: "direct" };
+  if (proxyUsed) {
+    try {
+      const res = await fetch(`${proxyUsed}?url=${encodeURIComponent(url)}`, { cache: "no-store" });
+      if (!res.ok) return null;
+      const text = await res.text();
+      if (text.length < 100) return null;
+      return { text, headers: res.headers, statusCode: res.status, via: proxyUsed };
+    } catch {
+      return null;
+    }
+  }
+  const proxy = await fetchViaProxy(url);
+  if (proxy) return { ...proxy, via: proxy.proxy };
+  return null;
+}
+
+// ── WordPress detection from RSS feed ──
+function detectWpFromFeed(text: string): { isWp: boolean; version: string | null } {
+  const lower = text.toLowerCase();
+  if (!lower.includes("wordpress") && !lower.includes("rss") && !lower.includes("channel")) {
+    return { isWp: false, version: null };
+  }
+  // RSS generator tag: <generator>https://wordpress.org/?v=6.4.3</generator>
+  const genMatch = text.match(/<generator>https:\/\/wordpress\.org\/\?v=([0-9.]+)<\/generator>/i);
+  if (genMatch) return { isWp: true, version: genMatch[1] };
+  // Some feeds just say WordPress
+  if (lower.includes("wordpress")) return { isWp: true, version: null };
+  return { isWp: false, version: null };
+}
+
+// ── WordPress detection from REST API ──
+function detectWpFromApi(text: string): { isWp: boolean; version: string | null } {
+  try {
+    const data = JSON.parse(text);
+    if (data?.namespaces?.some((n: string) => n.includes("wp/") || n.includes("wc/"))) {
+      return { isWp: true, version: null };
+    }
+    if (data?.authentication?.["application-passwords"]?.endpoints?.["authorization"]?.includes("wp-json")) {
+      return { isWp: true, version: null };
+    }
+  } catch {
+    // not JSON
+  }
+  return { isWp: false, version: null };
+}
+
+// ── WordPress detection from OPML ──
+function detectWpFromOpml(text: string): { isWp: boolean; version: string | null } {
+  const lower = text.toLowerCase();
+  if (lower.includes("wordpress") && lower.includes("opml")) {
+    return { isWp: true, version: null };
+  }
+  return { isWp: false, version: null };
+}
+
+// ── Multi-endpoint WordPress probe ──
+async function probeWordPress(baseUrl: string, proxyUsed: string | null): Promise<{
+  isWordPress: boolean;
+  version: string | null;
+  feedFetched: boolean;
+  apiFetched: boolean;
+  opmlFetched: boolean;
+}> {
+  let isWordPress = false;
+  let version: string | null = null;
+  let feedFetched = false;
+  let apiFetched = false;
+  let opmlFetched = false;
+
+  // Try RSS feed
+  const feed = await fetchAny(`${baseUrl}/feed/`, proxyUsed);
+  if (feed) {
+    feedFetched = true;
+    const feedResult = detectWpFromFeed(feed.text);
+    if (feedResult.isWp) {
+      isWordPress = true;
+      if (feedResult.version) version = feedResult.version;
+    }
+  }
+
+  // Try REST API
+  const api = await fetchAny(`${baseUrl}/wp-json/`, proxyUsed);
+  if (api) {
+    apiFetched = true;
+    const apiResult = detectWpFromApi(api.text);
+    if (apiResult.isWp) isWordPress = true;
+  }
+
+  // Try OPML
+  const opml = await fetchAny(`${baseUrl}/wp-links-opml.php`, proxyUsed);
+  if (opml) {
+    opmlFetched = true;
+    const opmlResult = detectWpFromOpml(opml.text);
+    if (opmlResult.isWp) isWordPress = true;
+  }
+
+  return { isWordPress, version, feedFetched, apiFetched, opmlFetched };
+}
+
+// ── Theme detection ──
 function detectTheme(html: string): string | null {
-  // Method 1: wp-content/themes/ path
   const themeMatches = [...html.matchAll(/wp-content\/themes\/([^\/"'?\s]+)/gi)];
   const themes = [...new Set(themeMatches.map((m) => m[1]))];
   if (themes.length > 0) return themes[0];
 
-  // Method 2: body class like "theme-{name}"
   const bodyMatch = html.match(/<body[^>]+class=["']([^"']*theme-([^\s"']+))[^"']*["']/i);
   if (bodyMatch) return bodyMatch[2];
 
-  // Method 3: common theme classes
   const lower = html.toLowerCase();
   const knownThemes: [string, string][] = [
     ["astra", "Astra"],
@@ -207,32 +332,27 @@ function detectTheme(html: string): string | null {
   return null;
 }
 
-// ── WordPress version from multiple sources ──
-function detectWordPressVersion(html: string): string | null {
-  // Method 1: generator meta tag
+// ── WordPress version from HTML ──
+function detectWpVersionFromHtml(html: string): string | null {
   const meta = html.match(/<meta[^>]+name=["']generator["'][^>]+content=["']WordPress\s+([0-9.]+)/i);
   if (meta) return meta[1];
-
-  // Method 2: CSS/JS ver parameter
   const verMatch = html.match(/[?&]ver=([0-9.]+)/);
   if (verMatch) {
     const v = verMatch[1];
     if (v.startsWith("6.") || v.startsWith("5.") || v.startsWith("4.") || v.startsWith("3.")) return v;
   }
-
-  // Method 3: any WordPress version mention
   const other = html.match(/WordPress\s+([0-9.]+)/i);
   if (other) return other[1];
-
   return null;
 }
 
-// ── Detect plugins by HTML signatures ──
-function detectPluginsBySignatures(html: string): DetectedPlugin[] {
+// ── Plugin detection ──
+function detectPlugins(html: string): DetectedPlugin[] {
   const lower = html.toLowerCase();
   const found: DetectedPlugin[] = [];
   const foundSlugs = new Set<string>();
 
+  // Signature-based detection
   for (const sig of PLUGIN_SIGNATURES) {
     const matched = sig.patterns.some((p) => lower.includes(p.toLowerCase()));
     if (matched && !foundSlugs.has(sig.slug)) {
@@ -241,74 +361,48 @@ function detectPluginsBySignatures(html: string): DetectedPlugin[] {
     }
   }
 
-  return found;
-}
-
-// ── Extract plugins from wp-content paths ──
-function extractPluginsFromPaths(html: string): DetectedPlugin[] {
+  // Path-based detection
   const matches = [...html.matchAll(/wp-content\/plugins\/([^\/"'?\s]+)/gi)];
   const slugs = [...new Set(matches.map((m) => m[1].toLowerCase()))];
-  return slugs.map((slug) => {
+  for (const slug of slugs) {
+    if (foundSlugs.has(slug)) continue;
+    foundSlugs.add(slug);
     const known = PLUGIN_MAP[slug];
-    return {
+    found.push({
       slug,
       name: known?.name || slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
       category: known?.category || "other",
-    };
-  });
+    });
+  }
+
+  return found;
 }
 
-function detectPhpVersion(headers: Headers): string | null {
-  const powered = headers.get("x-powered-by") || "";
-  const match = powered.match(/PHP\/([0-9.]+)/i);
-  return match ? match[1] : null;
-}
-
-function detectServerSoftware(headers: Headers): string | null {
-  return headers.get("server") || null;
-}
-
-// ── Multi-vector WordPress detection ──
-function isWordPress(html: string, headers: Headers): boolean {
+// ── CMS detection from HTML + headers ──
+function detectCmsFromHtml(html: string, headers: Headers): string | null {
   const lower = html.toLowerCase();
   const h = (s: string) => lower.includes(s.toLowerCase());
 
-  // Primary vectors
-  if (h("wp-content")) return true;
-  if (h("wp-includes")) return true;
-  if (h("wp-json")) return true;
-  if (h('generator" content="wordpress')) return true;
-  if (h("/wp-admin")) return true;
-  if (h("xmlrpc.php")) return true;
-  if (h("wp-embed.min.js")) return true;
-  if (h("wp-emoji-release.min.js")) return true;
-  if (h("wp-block-library")) return true;
+  // WordPress
+  if (h("wp-content")) return "WordPress";
+  if (h("wp-includes")) return "WordPress";
+  if (h("wp-json")) return "WordPress";
+  if (h('generator" content="wordpress')) return "WordPress";
+  if (h("/wp-admin")) return "WordPress";
+  if (h("xmlrpc.php")) return "WordPress";
+  if (h("wp-embed.min.js")) return "WordPress";
+  if (h("wp-emoji-release.min.js")) return "WordPress";
+  if (h("wp-block-library")) return "WordPress";
+  if (/<body[^>]+class=["'][^"']*home blog/.test(html)) return "WordPress";
+  if (/<body[^>]+class=["'][^"']*post-type/.test(html)) return "WordPress";
+  if (/<body[^>]+class=["'][^"']*page-template/.test(html)) return "WordPress";
+  if (h("rest_url")) return "WordPress";
+  if (h("rest_nonce")) return "WordPress";
+  if (h("wpApiSettings")) return "WordPress";
 
-  // Headers
   const linkHeader = headers.get("link") || "";
-  if (linkHeader.toLowerCase().includes("wp-json")) return true;
-  if (headers.get("x-pingback")?.toLowerCase().includes("xmlrpc.php")) return true;
-
-  // Body classes
-  if (/<body[^>]+class=["'][^"']*home blog/.test(html)) return true;
-  if (/<body[^>]+class=["'][^"']*post-type/.test(html)) return true;
-  if (/<body[^>]+class=["'][^"']*page-template/.test(html)) return true;
-
-  // REST API script tag
-  if (h("rest_url")) return true;
-  if (h("rest_nonce")) return true;
-  if (h("wpApiSettings")) return true;
-
-  return false;
-}
-
-// ── Detect CMS with fallback to WordPress signatures ──
-function detectCms(html: string, headers: Headers): string | null {
-  const lower = html.toLowerCase();
-  const h = (s: string) => lower.includes(s.toLowerCase());
-
-  // WordPress — most robust detection first
-  if (isWordPress(html, headers)) return "WordPress";
+  if (linkHeader.toLowerCase().includes("wp-json")) return "WordPress";
+  if (headers.get("x-pingback")?.toLowerCase().includes("xmlrpc.php")) return "WordPress";
 
   // Others
   if (h("shopify") || h("myshopify") || h("cdn.shopify") || h("shopify.theme")) return "Shopify";
@@ -335,6 +429,7 @@ function isPhpCms(cms: string | null): boolean {
   return phpCmsList.includes(cms);
 }
 
+// ── Scripts & analytics ──
 function extractScripts(html: string): string[] {
   const scripts: string[] = [];
   const lower = html.toLowerCase();
@@ -344,95 +439,35 @@ function extractScripts(html: string): string[] {
   check("googletagmanager", "Google Tag Manager");
   check("google-analytics", "Google Analytics");
   check("gtag", "Google Analytics (gtag)");
-  check("analytics.js", "Google Analytics");
   check("facebook.com/tr", "Meta Pixel");
-  check("fbevents.js", "Meta Pixel");
-  check("connect.facebook.net", "Facebook SDK");
   check("hotjar", "Hotjar");
   check("clarity.ms", "Microsoft Clarity");
   check("segment.io", "Segment");
   check("mixpanel", "Mixpanel");
-  check("amplitude", "Amplitude");
   check("intercom", "Intercom");
-  check("driftt", "Drift");
   check("hubspot", "HubSpot");
-  check("hs-scripts", "HubSpot");
   check("zendesk", "Zendesk");
-  check("freshchat", "Freshchat");
   check("tawk.to", "Tawk.to");
-  check("crisp.chat", "Crisp");
-  check("olark", "Olark");
-  check("livechat", "LiveChat");
   check("stripe.com", "Stripe");
   check("paypal.com", "PayPal");
-  check("braintree", "Braintree");
   check("googleads", "Google Ads");
   check("googlesyndication", "Google AdSense");
-  check("doubleclick", "DoubleClick");
-  check("adsystem", "Amazon Ads");
   check("outbrain", "Outbrain");
   check("taboola", "Taboola");
-  check("twitter.com/widgets", "Twitter Embed");
-  check("platform.twitter", "Twitter Embed");
-  check("platform.x.com", "X Embed");
-  check("instagram.com/embed", "Instagram Embed");
-  check("youtube.com/embed", "YouTube Embed");
-  check("vimeo.com", "Vimeo");
-  check("tiktok.com", "TikTok");
-  check("snap.licdn.com", "LinkedIn");
-  check("redditstatic", "Reddit");
-  check("pinterest", "Pinterest");
   check("algolia", "Algolia");
-  check("typesense", "Typesense");
-  check("meilisearch", "Meilisearch");
   check("swiper", "Swiper");
-  check("slick-slider", "Slick");
-  check("owl.carousel", "Owl Carousel");
-  check("lazysizes", "Lazysizes");
-  check("lozad", "Lozad");
   check("gsap", "GSAP");
   check("lodash", "Lodash");
-  check("underscore", "Underscore");
-  check("moment.js", "Moment.js");
-  check("dayjs", "Day.js");
-  check("date-fns", "date-fns");
   check("axios", "Axios");
-  check("fetch/", "Fetch API");
-  check("chart.js", "Chart.js");
-  check("d3.js", "D3.js");
   check("three.js", "Three.js");
-  check("webgl", "WebGL");
-  check("prism.js", "Prism.js");
-  check("highlight.js", "Highlight.js");
-  check("tinymce", "TinyMCE");
-  check("ckeditor", "CKEditor");
-  check("monaco-editor", "Monaco Editor");
-  check("codemirror", "CodeMirror");
+  check("d3.js", "D3.js");
+  check("chart.js", "Chart.js");
   check("mapbox", "Mapbox");
   check("google.maps", "Google Maps");
-  check("leaflet", "Leaflet");
   check("auth0", "Auth0");
   check("firebase", "Firebase");
-  check("supabase", "Supabase");
-  check("appwrite", "Appwrite");
   check("sentry", "Sentry");
-  check("bugsnag", "Bugsnag");
-  check("logrocket", "LogRocket");
-  check("newrelic", "New Relic");
-  check("datadog", "Datadog");
-  check("fullstory", "FullStory");
-  check("heap", "Heap");
-  check("crazyegg", "Crazy Egg");
   check("optimizely", "Optimizely");
-  check("vwo", "VWO");
-  check("abtasty", "AB Tasty");
-  check("launchdarkly", "LaunchDarkly");
-  check("split.io", "Split");
-  check("unpkg.com", "unpkg CDN");
-  check("cdn.jsdelivr.net", "jsDelivr CDN");
-  check("cdnjs.cloudflare.com", "cdnjs");
-  check("polyfill.io", "Polyfill.io");
-
   return [...new Set(scripts)];
 }
 
@@ -443,37 +478,20 @@ function extractAnalytics(html: string): string[] {
     ["googletagmanager", "Google Tag Manager"],
     ["google-analytics", "Google Analytics"],
     ["gtag", "Google Analytics"],
-    ["analytics.js", "Google Analytics"],
     ["facebook.com/tr", "Meta Pixel"],
-    ["fbevents.js", "Meta Pixel"],
     ["hotjar", "Hotjar"],
     ["clarity.ms", "Microsoft Clarity"],
     ["segment.io", "Segment"],
     ["mixpanel", "Mixpanel"],
     ["amplitude", "Amplitude"],
-    ["heap.io", "Heap"],
-    ["fullstory.com", "FullStory"],
-    ["crazyegg", "Crazy Egg"],
-    ["optimizely", "Optimizely"],
-    ["vwo.com", "VWO"],
-    ["adobe.com/analytics", "Adobe Analytics"],
-    ["omniture", "Adobe Analytics"],
-    ["piwik", "Matomo"],
-    ["matomo", "Matomo"],
     ["plausible.io", "Plausible"],
-    ["fathom", "Fathom"],
-    ["simpleanalytics", "Simple Analytics"],
-    ["umami", "Umami"],
     ["posthog", "PostHog"],
     ["chartbeat", "Chartbeat"],
     ["parsely", "Parse.ly"],
-    ["comscore", "Comscore"],
-    ["quantserve", "Quantcast"],
-    ["statcounter", "StatCounter"],
-    ["clicky", "Clicky"],
-    ["gosquared", "GoSquared"],
-    ["woopra", "Woopra"],
-    ["kissmetrics", "Kissmetrics"],
+    ["matomo", "Matomo"],
+    ["piwik", "Matomo"],
+    ["fathom", "Fathom"],
+    ["umami", "Umami"],
   ];
   for (const [pattern, name] of checks) {
     if (lower.includes(pattern)) found.push(name);
@@ -499,150 +517,28 @@ function extractInterestingHeaders(headers: Headers): Record<string, string> {
   return result;
 }
 
-async function fetchViaProxy(url: string): Promise<{ text: string; headers: Headers; proxy: string; statusCode: number } | null> {
-  for (const proxyFn of CORS_PROXIES) {
-    const proxyUrl = proxyFn(url);
-    try {
-      const res = await fetch(proxyUrl, { cache: "no-store" });
-      if (!res.ok) continue;
-      const text = await res.text();
-      if (text.length < 100) continue;
-      return { text, headers: res.headers, proxy: proxyUrl.split("?")[0], statusCode: res.status };
-    } catch {
-      continue;
-    }
-  }
-  return null;
+function detectPhpVersion(headers: Headers): string | null {
+  const powered = headers.get("x-powered-by") || "";
+  const match = powered.match(/PHP\/([0-9.]+)/i);
+  return match ? match[1] : null;
 }
 
-async function fetchDirect(url: string): Promise<{ text: string; headers: Headers; statusCode: number } | null> {
-  try {
-    const res = await fetch(url, { mode: "cors", cache: "no-store" });
-    if (!res.ok) return null;
-    return { text: await res.text(), headers: res.headers, statusCode: res.status };
-  } catch {
-    return null;
-  }
+function detectServerSoftware(headers: Headers): string | null {
+  return headers.get("server") || null;
 }
 
-function detectCmsAndPlugins(html: string, headers: Headers, statusCode: number): Partial<DetectedTech> {
-  const lower = html.toLowerCase();
-  const has = (str: string) => lower.includes(str.toLowerCase());
-  const frameworks: string[] = [];
-
-  const cms = detectCms(html, headers);
-  const isWp = cms === "WordPress";
-
-  // Plugins: combine path-based + signature-based detection
-  const pluginsFromPaths = isWp ? extractPluginsFromPaths(html) : [];
-  const pluginsFromSignatures = isWp ? detectPluginsBySignatures(html) : [];
-
-  // Merge: signature plugins take precedence, then path-based
-  const pluginMap = new Map<string, DetectedPlugin>();
-  for (const p of pluginsFromSignatures) pluginMap.set(p.slug, p);
-  for (const p of pluginsFromPaths) {
-    if (!pluginMap.has(p.slug)) pluginMap.set(p.slug, p);
-  }
-  const plugins = Array.from(pluginMap.values());
-
-  const wpVersion = isWp ? detectWordPressVersion(html) : null;
-  const phpVersion = detectPhpVersion(headers);
-  const serverSoftware = detectServerSoftware(headers);
-  const theme = isWp ? detectTheme(html) : null;
-  const scripts = extractScripts(html);
-  const analytics = extractAnalytics(html);
-  const metaDescription = extractMetaDescription(html);
-  const responseHeaders = extractInterestingHeaders(headers);
-
-  // Frameworks
-  if (has("react") || has("data-reactroot") || has("__react") || has("reactroot")) frameworks.push("React");
-  if (has("next.js") || has("__next") || has("/_next/static")) frameworks.push("Next.js");
-  if (has("vue.js") || has("__vue") || has("data-v-")) frameworks.push("Vue");
-  if (has("nuxt") || has("__nuxt")) frameworks.push("Nuxt");
-  if (has("angular") || has("ng-app") || has("ng-version")) frameworks.push("Angular");
-  if (has("svelte") || has("svelte-")) frameworks.push("Svelte");
-  if (has("remix") || has("__remix")) frameworks.push("Remix");
-  if (has("jquery") || has("jquery.js")) frameworks.push("jQuery");
-  if (has("tailwindcss") || has("tailwind")) frameworks.push("Tailwind CSS");
-  if (has("bootstrap") || has("bootstrap.min.css")) frameworks.push("Bootstrap");
-  if (has("styled-components") || has("data-styled")) frameworks.push("Styled Components");
-  if (has("emotion") || has("data-emotion")) frameworks.push("Emotion");
-  if (has("material-ui") || has("mui")) frameworks.push("Material UI");
-  if (has("chakra-ui") || has("chakra")) frameworks.push("Chakra UI");
-  if (has("ant.design") || has("antd")) frameworks.push("Ant Design");
-  if (has("lodash") || has("lodash.min.js")) frameworks.push("Lodash");
-  if (has("axios")) frameworks.push("Axios");
-  if (has("gsap") || has("greensock")) frameworks.push("GSAP");
-  if (has("webgl") || has("three.js") || has("three.min.js")) frameworks.push("Three.js / WebGL");
-  if (has("d3.js") || has("d3.min.js")) frameworks.push("D3.js");
-  if (has("chart.js")) frameworks.push("Chart.js");
-  if (has("swiper")) frameworks.push("Swiper");
-
-  const detected: Partial<DetectedTech> = {
-    cms,
-    cmsVersion: wpVersion,
-    phpVersion,
-    theme,
-    themeVersion: null,
-    isWordPress: isWp,
-    isPhpSite: isPhpCms(cms),
-    hasWooCommerce: plugins.some((p) => p.slug === "woocommerce" || p.slug === "woo-commerce"),
-    hasElementor: plugins.some((p) => p.slug === "elementor" || p.slug === "elementor-pro"),
-    hasMemberPress: plugins.some((p) => p.slug === "memberpress"),
-    hasLearnDash: plugins.some((p) => p.slug === "learndash" || p.slug === "sfwd-lms"),
-    hasBuddyBoss: plugins.some((p) => p.slug === "buddyboss" || p.slug === "buddypress"),
-    hasContactForm7: plugins.some((p) => p.slug === "contact-form-7" || p.slug === "wpcf7"),
-    hasGravityForms: plugins.some((p) => p.slug === "gravityforms" || p.slug === "gravity-forms"),
-    hasYoast: plugins.some((p) => p.slug === "wordpress-seo" || p.slug === "yoast-seo"),
-    hasRankMath: plugins.some((p) => p.slug === "rank-math"),
-    hasWPRocket: plugins.some((p) => p.slug === "wp-rocket"),
-    hasW3TotalCache: plugins.some((p) => p.slug === "w3-total-cache"),
-    hasLiteSpeedCache: plugins.some((p) => p.slug === "litespeed-cache"),
-    hasCloudflare: has("cloudflare") || has("__cf") || has("cf-ray") || has("cf-browser-verification"),
-    plugins,
-    frameworks,
-    serverSoftware,
-    scripts,
-    analytics,
-    metaDescription,
-    responseHeaders,
-    statusCode,
-  };
-
-  const cfHeader = headers.get("cf-ray") || headers.get("server") || "";
-  if (cfHeader.toLowerCase().includes("cloudflare")) {
-    detected.hasCloudflare = true;
-  }
-
-  const heavyCats = ["ecommerce", "page-builder", "membership", "lms", "forms"];
-  detected.heavyPluginsCount = plugins.filter((p) => heavyCats.includes(p.category)).length;
-
-  const cacheSlugs = ["wp-rocket", "w3-total-cache", "litespeed-cache", "wp-super-cache", "wp-fastest-cache", "cache-enabler", "swift-performance"];
-  const cachePlugin = plugins.find((p) => cacheSlugs.includes(p.slug));
-  detected.cachePlugin = cachePlugin ? cachePlugin.name : null;
-
-  return detected;
-}
-
+// ── Sitemap ──
 async function fetchSitemap(domain: string, proxyUsed: string | null): Promise<{ count: number; lastmods: string[] } | null> {
   const base = domain.startsWith("http") ? domain : `https://${domain}`;
   const paths = ["/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml", "/sitemap-index.xml"];
   for (const p of paths) {
     try {
       const url = new URL(p, base).toString();
-      let text: string;
-      if (proxyUsed) {
-        const proxyRes = await fetch(`${proxyUsed}?url=${encodeURIComponent(url)}`, { cache: "no-store" });
-        if (!proxyRes.ok) continue;
-        text = await proxyRes.text();
-      } else {
-        const direct = await fetchDirect(url);
-        if (!direct) continue;
-        text = direct.text;
-      }
-      const urlMatches = text.match(/<url>/g);
+      const fetched = await fetchAny(url, proxyUsed);
+      if (!fetched) continue;
+      const urlMatches = fetched.text.match(/<url>/g);
       const count = urlMatches ? urlMatches.length : 0;
-      const lastmods = [...text.matchAll(/<lastmod>([^<]+)<\/lastmod>/g)].map((m) => m[1]);
+      const lastmods = [...fetched.text.matchAll(/<lastmod>([^<]+)<\/lastmod>/g)].map((m) => m[1]);
       return { count: Math.min(count, 10000), lastmods: lastmods.slice(0, 10) };
     } catch {
       continue;
@@ -694,49 +590,20 @@ export async function analyzeSite(domain: string): Promise<AnalysisResult> {
   const baseUrl = `https://${cleanDomain}`;
 
   const base: DetectedTech = {
-    cms: null,
-    cmsVersion: null,
-    phpVersion: null,
-    theme: null,
-    themeVersion: null,
-    isWordPress: false,
-    isPhpSite: false,
-    hasWooCommerce: false,
-    hasElementor: false,
-    hasMemberPress: false,
-    hasLearnDash: false,
-    hasBuddyBoss: false,
-    hasContactForm7: false,
-    hasGravityForms: false,
-    hasYoast: false,
-    hasRankMath: false,
-    hasWPRocket: false,
-    hasW3TotalCache: false,
-    hasLiteSpeedCache: false,
-    hasCloudflare: false,
-    cachePlugin: null,
-    heavyPluginsCount: 0,
-    estimatedPages: 0,
-    ttfb: null,
-    lcp: null,
-    cls: null,
-    frameworks: [],
-    plugins: [],
-    serverSoftware: null,
-    scripts: [],
-    analytics: [],
-    metaDescription: null,
-    responseHeaders: {},
-    statusCode: null,
+    cms: null, cmsVersion: null, phpVersion: null, theme: null, themeVersion: null,
+    isWordPress: false, isPhpSite: false, hasWooCommerce: false, hasElementor: false,
+    hasMemberPress: false, hasLearnDash: false, hasBuddyBoss: false, hasContactForm7: false,
+    hasGravityForms: false, hasYoast: false, hasRankMath: false, hasWPRocket: false,
+    hasW3TotalCache: false, hasLiteSpeedCache: false, hasCloudflare: false,
+    cachePlugin: null, heavyPluginsCount: 0, estimatedPages: 0,
+    ttfb: null, lcp: null, cls: null, frameworks: [], plugins: [],
+    serverSoftware: null, scripts: [], analytics: [], metaDescription: null,
+    responseHeaders: {}, statusCode: null,
   };
 
   const status: ScanStatus = {
-    homepageFetched: false,
-    sitemapFetched: false,
-    pageSpeedFetched: false,
-    dnsFetched: false,
-    proxyUsed: null,
-    pageSpeedRateLimited: false,
+    homepageFetched: false, sitemapFetched: false, pageSpeedFetched: false,
+    dnsFetched: false, proxyUsed: null, pageSpeedRateLimited: false,
   };
 
   const apiKeys = getApiKeys();
@@ -748,6 +615,7 @@ export async function analyzeSite(domain: string): Promise<AnalysisResult> {
   const dns = await analyzeDns(cleanDomain);
   status.dnsFetched = dns.nameservers.length > 0 || dns.aRecords.length > 0;
 
+  // Fetch homepage
   let html: string | null = null;
   let headers = new Headers();
   let statusCode = 0;
@@ -769,21 +637,93 @@ export async function analyzeSite(domain: string): Promise<AnalysisResult> {
     }
   }
 
+  // Detect CMS from homepage
+  let cmsFromHtml: string | null = null;
   if (html) {
-    const detected = detectCmsAndPlugins(html, headers, statusCode);
-    Object.assign(base, detected);
+    cmsFromHtml = detectCmsFromHtml(html, headers);
   }
 
+  // Probe WordPress via RSS/API/OPML
+  const wpProbe = await probeWordPress(baseUrl, status.proxyUsed);
+
+  // Determine final CMS
+  if (cmsFromHtml === "WordPress" || wpProbe.isWordPress) {
+    base.cms = "WordPress";
+    base.isWordPress = true;
+    base.isPhpSite = true;
+  } else {
+    base.cms = cmsFromHtml;
+    base.isPhpSite = isPhpCms(cmsFromHtml);
+  }
+
+  // Version: prefer feed version, then HTML
+  if (wpProbe.version) {
+    base.cmsVersion = wpProbe.version;
+  } else if (html) {
+    base.cmsVersion = detectWpVersionFromHtml(html);
+  }
+
+  // Detect plugins from homepage HTML
+  if (html) {
+    base.plugins = base.isWordPress ? detectPlugins(html) : [];
+  }
+
+  // Theme
+  if (html && base.isWordPress) {
+    base.theme = detectTheme(html);
+  }
+
+  // PHP version
+  base.phpVersion = detectPhpVersion(headers);
+  base.serverSoftware = detectServerSoftware(headers);
+
+  // Scripts, analytics, meta, headers
+  if (html) {
+    base.scripts = extractScripts(html);
+    base.analytics = extractAnalytics(html);
+    base.metaDescription = extractMetaDescription(html);
+  }
+  base.responseHeaders = extractInterestingHeaders(headers);
+  base.statusCode = statusCode;
+
+  // Cloudflare from headers
+  const cfHeader = headers.get("cf-ray") || headers.get("server") || "";
+  if (cfHeader.toLowerCase().includes("cloudflare")) {
+    base.hasCloudflare = true;
+  }
   if (dns.cdnProvider === "Cloudflare" || dns.cdnProvider === "Akamai") {
     base.hasCloudflare = true;
   }
 
+  // Plugin flags
+  base.hasWooCommerce = base.plugins.some((p) => p.slug === "woocommerce" || p.slug === "woo-commerce");
+  base.hasElementor = base.plugins.some((p) => p.slug === "elementor" || p.slug === "elementor-pro");
+  base.hasMemberPress = base.plugins.some((p) => p.slug === "memberpress");
+  base.hasLearnDash = base.plugins.some((p) => p.slug === "learndash" || p.slug === "sfwd-lms");
+  base.hasBuddyBoss = base.plugins.some((p) => p.slug === "buddyboss" || p.slug === "buddypress");
+  base.hasContactForm7 = base.plugins.some((p) => p.slug === "contact-form-7" || p.slug === "wpcf7");
+  base.hasGravityForms = base.plugins.some((p) => p.slug === "gravityforms" || p.slug === "gravity-forms");
+  base.hasYoast = base.plugins.some((p) => p.slug === "wordpress-seo" || p.slug === "yoast-seo");
+  base.hasRankMath = base.plugins.some((p) => p.slug === "rank-math");
+  base.hasWPRocket = base.plugins.some((p) => p.slug === "wp-rocket");
+  base.hasW3TotalCache = base.plugins.some((p) => p.slug === "w3-total-cache");
+  base.hasLiteSpeedCache = base.plugins.some((p) => p.slug === "litespeed-cache");
+
+  const heavyCats = ["ecommerce", "page-builder", "membership", "lms", "forms"];
+  base.heavyPluginsCount = base.plugins.filter((p) => heavyCats.includes(p.category)).length;
+
+  const cacheSlugs = ["wp-rocket", "w3-total-cache", "litespeed-cache", "wp-super-cache", "wp-fastest-cache", "cache-enabler", "swift-performance"];
+  const cachePlugin = base.plugins.find((p) => cacheSlugs.includes(p.slug));
+  base.cachePlugin = cachePlugin ? cachePlugin.name : null;
+
+  // Sitemap
   const sitemap = await fetchSitemap(cleanDomain, status.proxyUsed);
   if (sitemap) {
     base.estimatedPages = sitemap.count;
     status.sitemapFetched = true;
   }
 
+  // PageSpeed
   const psi = await fetchPageSpeed(cleanDomain);
   base.ttfb = psi.ttfb;
   base.lcp = psi.lcp;

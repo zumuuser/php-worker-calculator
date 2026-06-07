@@ -4,7 +4,6 @@
  * No CORS issues. Deploys in 60 seconds.
  */
 
-// ── Known plugin mapping: slug → { name, category } ──
 const PLUGIN_MAP = {
   woocommerce: { name: "WooCommerce", category: "ecommerce" },
   "woo-commerce": { name: "WooCommerce", category: "ecommerce" },
@@ -85,7 +84,6 @@ const PLUGIN_MAP = {
   "happy-elementor-addons": { name: "Happy Elementor Addons", category: "page-builder" },
 };
 
-// ── Plugin HTML signatures ──
 const PLUGIN_SIGNATURES = [
   { patterns: ["woocommerce", "wc-", "woocommerce_params", "wc_cart_fragments", "class=\"woocommerce"], slug: "woocommerce", name: "WooCommerce", category: "ecommerce" },
   { patterns: ["elementor", "data-elementor-type", "elementor-widget", "elementor-kit"], slug: "elementor", name: "Elementor", category: "page-builder" },
@@ -250,40 +248,89 @@ async function analyzeDns(domain) {
   };
 }
 
-function isWordPress(html, headers) {
-  const lower = html.toLowerCase();
-  const h = (s) => lower.includes(s.toLowerCase());
+// ── Multi-endpoint WordPress probe ──
+async function probeWordPress(baseUrl) {
+  let isWordPress = false;
+  let version = null;
 
-  if (h("wp-content")) return true;
-  if (h("wp-includes")) return true;
-  if (h("wp-json")) return true;
-  if (h('generator" content="wordpress')) return true;
-  if (h("/wp-admin")) return true;
-  if (h("xmlrpc.php")) return true;
-  if (h("wp-embed.min.js")) return true;
-  if (h("wp-emoji-release.min.js")) return true;
-  if (h("wp-block-library")) return true;
+  // Try RSS feed
+  try {
+    const feedRes = await fetch(new URL("/feed/", baseUrl).toString(), { redirect: "follow" });
+    if (feedRes.ok) {
+      const feedText = await feedRes.text();
+      const genMatch = feedText.match(/<generator>https:\/\/wordpress\.org\/\?v=([0-9.]+)<\/generator>/i);
+      if (genMatch) {
+        isWordPress = true;
+        version = genMatch[1];
+      } else if (feedText.toLowerCase().includes("wordpress")) {
+        isWordPress = true;
+      }
+    }
+  } catch {
+    // ignore
+  }
 
-  const linkHeader = headers.get("link") || "";
-  if (linkHeader.toLowerCase().includes("wp-json")) return true;
-  if (headers.get("x-pingback")?.toLowerCase().includes("xmlrpc.php")) return true;
+  // Try REST API
+  if (!isWordPress) {
+    try {
+      const apiRes = await fetch(new URL("/wp-json/", baseUrl).toString(), { redirect: "follow" });
+      if (apiRes.ok) {
+        const apiText = await apiRes.text();
+        try {
+          const data = JSON.parse(apiText);
+          if (data?.namespaces?.some((n) => n.includes("wp/") || n.includes("wc/"))) {
+            isWordPress = true;
+          }
+        } catch {
+          // not JSON
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
 
-  if (/<body[^>]+class=["'][^"']*home blog/.test(html)) return true;
-  if (/<body[^>]+class=["'][^"']*post-type/.test(html)) return true;
-  if (/<body[^>]+class=["'][^"']*page-template/.test(html)) return true;
+  // Try OPML
+  if (!isWordPress) {
+    try {
+      const opmlRes = await fetch(new URL("/wp-links-opml.php", baseUrl).toString(), { redirect: "follow" });
+      if (opmlRes.ok) {
+        const opmlText = await opmlRes.text();
+        if (opmlText.toLowerCase().includes("wordpress") && opmlText.toLowerCase().includes("opml")) {
+          isWordPress = true;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
 
-  if (h("rest_url")) return true;
-  if (h("rest_nonce")) return true;
-  if (h("wpApiSettings")) return true;
-
-  return false;
+  return { isWordPress, version };
 }
 
-function detectCms(html, headers) {
+function detectCmsFromHtml(html, headers) {
   const lower = html.toLowerCase();
   const h = (s) => lower.includes(s.toLowerCase());
 
-  if (isWordPress(html, headers)) return "WordPress";
+  if (h("wp-content")) return "WordPress";
+  if (h("wp-includes")) return "WordPress";
+  if (h("wp-json")) return "WordPress";
+  if (h('generator" content="wordpress')) return "WordPress";
+  if (h("/wp-admin")) return "WordPress";
+  if (h("xmlrpc.php")) return "WordPress";
+  if (h("wp-embed.min.js")) return "WordPress";
+  if (h("wp-emoji-release.min.js")) return "WordPress";
+  if (h("wp-block-library")) return "WordPress";
+  if (/<body[^>]+class=["'][^"']*home blog/.test(html)) return "WordPress";
+  if (/<body[^>]+class=["'][^"']*post-type/.test(html)) return "WordPress";
+  if (/<body[^>]+class=["'][^"']*page-template/.test(html)) return "WordPress";
+  if (h("rest_url")) return "WordPress";
+  if (h("rest_nonce")) return "WordPress";
+  if (h("wpApiSettings")) return "WordPress";
+
+  const linkHeader = headers.get("link") || "";
+  if (linkHeader.toLowerCase().includes("wp-json")) return "WordPress";
+  if (headers.get("x-pingback")?.toLowerCase().includes("xmlrpc.php")) return "WordPress";
 
   if (h("shopify") || h("myshopify") || h("cdn.shopify") || h("shopify.theme")) return "Shopify";
   if (h("webflow") || h("data-wf-domain") || h("w-nav")) return "Webflow";
@@ -307,6 +354,19 @@ function isPhpCms(cms) {
   if (!cms) return false;
   const phpCmsList = ["WordPress", "Magento", "Drupal", "Joomla", "Laravel", "CakePHP", "Symfony", "PrestaShop", "OpenCart", "Zen Cart", "OSCommerce"];
   return phpCmsList.includes(cms);
+}
+
+function detectWpVersionFromHtml(html) {
+  const meta = html.match(/<meta[^>]+name=["']generator["'][^>]+content=["']WordPress\s+([0-9.]+)/i);
+  if (meta) return meta[1];
+  const verMatch = html.match(/[?&]ver=([0-9.]+)/);
+  if (verMatch) {
+    const v = verMatch[1];
+    if (v.startsWith("6.") || v.startsWith("5.") || v.startsWith("4.") || v.startsWith("3.")) return v;
+  }
+  const other = html.match(/WordPress\s+([0-9.]+)/i);
+  if (other) return other[1];
+  return null;
 }
 
 function detectTheme(html) {
@@ -357,23 +417,7 @@ function detectTheme(html) {
   return null;
 }
 
-function detectWordPressVersion(html) {
-  const meta = html.match(/<meta[^>]+name=["']generator["'][^>]+content=["']WordPress\s+([0-9.]+)/i);
-  if (meta) return meta[1];
-
-  const verMatch = html.match(/[?&]ver=([0-9.]+)/);
-  if (verMatch) {
-    const v = verMatch[1];
-    if (v.startsWith("6.") || v.startsWith("5.") || v.startsWith("4.") || v.startsWith("3.")) return v;
-  }
-
-  const other = html.match(/WordPress\s+([0-9.]+)/i);
-  if (other) return other[1];
-
-  return null;
-}
-
-function detectPluginsBySignatures(html) {
+function detectPlugins(html) {
   const lower = html.toLowerCase();
   const found = [];
   const foundSlugs = new Set();
@@ -386,20 +430,20 @@ function detectPluginsBySignatures(html) {
     }
   }
 
-  return found;
-}
-
-function extractPluginsFromPaths(html) {
   const matches = [...html.matchAll(/wp-content\/plugins\/([^\/"'?\s]+)/gi)];
   const slugs = [...new Set(matches.map((m) => m[1].toLowerCase()))];
-  return slugs.map((slug) => {
+  for (const slug of slugs) {
+    if (foundSlugs.has(slug)) continue;
+    foundSlugs.add(slug);
     const known = PLUGIN_MAP[slug];
-    return {
+    found.push({
       slug,
       name: known?.name || slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
       category: known?.category || "other",
-    };
-  });
+    });
+  }
+
+  return found;
 }
 
 function detectPhpVersion(headers) {
@@ -421,94 +465,35 @@ function extractScripts(html) {
   check("googletagmanager", "Google Tag Manager");
   check("google-analytics", "Google Analytics");
   check("gtag", "Google Analytics (gtag)");
-  check("analytics.js", "Google Analytics");
   check("facebook.com/tr", "Meta Pixel");
-  check("fbevents.js", "Meta Pixel");
-  check("connect.facebook.net", "Facebook SDK");
   check("hotjar", "Hotjar");
   check("clarity.ms", "Microsoft Clarity");
   check("segment.io", "Segment");
   check("mixpanel", "Mixpanel");
-  check("amplitude", "Amplitude");
   check("intercom", "Intercom");
-  check("driftt", "Drift");
   check("hubspot", "HubSpot");
-  check("hs-scripts", "HubSpot");
   check("zendesk", "Zendesk");
-  check("freshchat", "Freshchat");
   check("tawk.to", "Tawk.to");
-  check("crisp.chat", "Crisp");
-  check("olark", "Olark");
-  check("livechat", "LiveChat");
   check("stripe.com", "Stripe");
   check("paypal.com", "PayPal");
-  check("braintree", "Braintree");
   check("googleads", "Google Ads");
   check("googlesyndication", "Google AdSense");
-  check("doubleclick", "DoubleClick");
-  check("adsystem", "Amazon Ads");
   check("outbrain", "Outbrain");
   check("taboola", "Taboola");
-  check("twitter.com/widgets", "Twitter Embed");
-  check("platform.twitter", "Twitter Embed");
-  check("platform.x.com", "X Embed");
-  check("instagram.com/embed", "Instagram Embed");
-  check("youtube.com/embed", "YouTube Embed");
-  check("vimeo.com", "Vimeo");
-  check("tiktok.com", "TikTok");
-  check("snap.licdn.com", "LinkedIn");
-  check("redditstatic", "Reddit");
-  check("pinterest", "Pinterest");
   check("algolia", "Algolia");
-  check("typesense", "Typesense");
-  check("meilisearch", "Meilisearch");
   check("swiper", "Swiper");
-  check("slick-slider", "Slick");
-  check("owl.carousel", "Owl Carousel");
-  check("lazysizes", "Lazysizes");
-  check("lozad", "Lozad");
   check("gsap", "GSAP");
   check("lodash", "Lodash");
-  check("underscore", "Underscore");
-  check("moment.js", "Moment.js");
-  check("dayjs", "Day.js");
-  check("date-fns", "date-fns");
   check("axios", "Axios");
-  check("fetch/", "Fetch API");
-  check("chart.js", "Chart.js");
-  check("d3.js", "D3.js");
   check("three.js", "Three.js");
-  check("webgl", "WebGL");
-  check("prism.js", "Prism.js");
-  check("highlight.js", "Highlight.js");
-  check("tinymce", "TinyMCE");
-  check("ckeditor", "CKEditor");
-  check("monaco-editor", "Monaco Editor");
-  check("codemirror", "CodeMirror");
+  check("d3.js", "D3.js");
+  check("chart.js", "Chart.js");
   check("mapbox", "Mapbox");
   check("google.maps", "Google Maps");
-  check("leaflet", "Leaflet");
   check("auth0", "Auth0");
   check("firebase", "Firebase");
-  check("supabase", "Supabase");
-  check("appwrite", "Appwrite");
   check("sentry", "Sentry");
-  check("bugsnag", "Bugsnag");
-  check("logrocket", "LogRocket");
-  check("newrelic", "New Relic");
-  check("datadog", "Datadog");
-  check("fullstory", "FullStory");
-  check("heap", "Heap");
-  check("crazyegg", "Crazy Egg");
   check("optimizely", "Optimizely");
-  check("vwo", "VWO");
-  check("abtasty", "AB Tasty");
-  check("launchdarkly", "LaunchDarkly");
-  check("split.io", "Split");
-  check("unpkg.com", "unpkg CDN");
-  check("cdn.jsdelivr.net", "jsDelivr CDN");
-  check("cdnjs.cloudflare.com", "cdnjs");
-  check("polyfill.io", "Polyfill.io");
   return [...new Set(scripts)];
 }
 
@@ -519,37 +504,19 @@ function extractAnalytics(html) {
     ["googletagmanager", "Google Tag Manager"],
     ["google-analytics", "Google Analytics"],
     ["gtag", "Google Analytics"],
-    ["analytics.js", "Google Analytics"],
     ["facebook.com/tr", "Meta Pixel"],
-    ["fbevents.js", "Meta Pixel"],
     ["hotjar", "Hotjar"],
     ["clarity.ms", "Microsoft Clarity"],
     ["segment.io", "Segment"],
     ["mixpanel", "Mixpanel"],
     ["amplitude", "Amplitude"],
-    ["heap.io", "Heap"],
-    ["fullstory.com", "FullStory"],
-    ["crazyegg", "Crazy Egg"],
-    ["optimizely", "Optimizely"],
-    ["vwo.com", "VWO"],
-    ["adobe.com/analytics", "Adobe Analytics"],
-    ["omniture", "Adobe Analytics"],
-    ["piwik", "Matomo"],
-    ["matomo", "Matomo"],
     ["plausible.io", "Plausible"],
-    ["fathom", "Fathom"],
-    ["simpleanalytics", "Simple Analytics"],
-    ["umami", "Umami"],
     ["posthog", "PostHog"],
     ["chartbeat", "Chartbeat"],
     ["parsely", "Parse.ly"],
-    ["comscore", "Comscore"],
-    ["quantserve", "Quantcast"],
-    ["statcounter", "StatCounter"],
-    ["clicky", "Clicky"],
-    ["gosquared", "GoSquared"],
-    ["woopra", "Woopra"],
-    ["kissmetrics", "Kissmetrics"],
+    ["matomo", "Matomo"],
+    ["fathom", "Fathom"],
+    ["umami", "Umami"],
   ];
   for (const [pattern, name] of checks) {
     if (lower.includes(pattern)) found.push(name);
@@ -573,104 +540,6 @@ function extractInterestingHeaders(headers) {
     if (val) result[key] = val;
   }
   return result;
-}
-
-function detectCmsAndPlugins(html, headers, statusCode) {
-  const lower = html.toLowerCase();
-  const has = (str) => lower.includes(str.toLowerCase());
-  const frameworks = [];
-
-  const cms = detectCms(html, headers);
-  const isWp = cms === "WordPress";
-
-  // Plugins: combine path-based + signature-based
-  const pluginsFromPaths = isWp ? extractPluginsFromPaths(html) : [];
-  const pluginsFromSignatures = isWp ? detectPluginsBySignatures(html) : [];
-
-  const pluginMap = new Map();
-  for (const p of pluginsFromSignatures) pluginMap.set(p.slug, p);
-  for (const p of pluginsFromPaths) {
-    if (!pluginMap.has(p.slug)) pluginMap.set(p.slug, p);
-  }
-  const plugins = Array.from(pluginMap.values());
-
-  const wpVersion = isWp ? detectWordPressVersion(html) : null;
-  const phpVersion = detectPhpVersion(headers);
-  const serverSoftware = detectServerSoftware(headers);
-  const theme = isWp ? detectTheme(html) : null;
-  const scripts = extractScripts(html);
-  const analytics = extractAnalytics(html);
-  const metaDescription = extractMetaDescription(html);
-  const responseHeaders = extractInterestingHeaders(headers);
-
-  // Frameworks
-  if (has("react") || has("data-reactroot") || has("__react") || has("reactroot")) frameworks.push("React");
-  if (has("next.js") || has("__next") || has("/_next/static")) frameworks.push("Next.js");
-  if (has("vue.js") || has("__vue") || has("data-v-")) frameworks.push("Vue");
-  if (has("nuxt") || has("__nuxt")) frameworks.push("Nuxt");
-  if (has("angular") || has("ng-app") || has("ng-version")) frameworks.push("Angular");
-  if (has("svelte") || has("svelte-")) frameworks.push("Svelte");
-  if (has("remix") || has("__remix")) frameworks.push("Remix");
-  if (has("jquery") || has("jquery.js")) frameworks.push("jQuery");
-  if (has("tailwindcss") || has("tailwind")) frameworks.push("Tailwind CSS");
-  if (has("bootstrap") || has("bootstrap.min.css")) frameworks.push("Bootstrap");
-  if (has("styled-components") || has("data-styled")) frameworks.push("Styled Components");
-  if (has("emotion") || has("data-emotion")) frameworks.push("Emotion");
-  if (has("material-ui") || has("mui")) frameworks.push("Material UI");
-  if (has("chakra-ui") || has("chakra")) frameworks.push("Chakra UI");
-  if (has("ant.design") || has("antd")) frameworks.push("Ant Design");
-  if (has("lodash") || has("lodash.min.js")) frameworks.push("Lodash");
-  if (has("axios")) frameworks.push("Axios");
-  if (has("gsap") || has("greensock")) frameworks.push("GSAP");
-  if (has("webgl") || has("three.js") || has("three.min.js")) frameworks.push("Three.js / WebGL");
-  if (has("d3.js") || has("d3.min.js")) frameworks.push("D3.js");
-  if (has("chart.js")) frameworks.push("Chart.js");
-  if (has("swiper")) frameworks.push("Swiper");
-
-  const detected = {
-    isWordPress: isWp,
-    isPhpSite: isPhpCms(cms),
-    hasWooCommerce: plugins.some((p) => p.slug === "woocommerce" || p.slug === "woo-commerce"),
-    hasElementor: plugins.some((p) => p.slug === "elementor" || p.slug === "elementor-pro"),
-    hasMemberPress: plugins.some((p) => p.slug === "memberpress"),
-    hasLearnDash: plugins.some((p) => p.slug === "learndash" || p.slug === "sfwd-lms"),
-    hasBuddyBoss: plugins.some((p) => p.slug === "buddyboss" || p.slug === "buddypress"),
-    hasContactForm7: plugins.some((p) => p.slug === "contact-form-7" || p.slug === "wpcf7"),
-    hasGravityForms: plugins.some((p) => p.slug === "gravityforms" || p.slug === "gravity-forms"),
-    hasYoast: plugins.some((p) => p.slug === "wordpress-seo" || p.slug === "yoast-seo"),
-    hasRankMath: plugins.some((p) => p.slug === "rank-math"),
-    hasWPRocket: plugins.some((p) => p.slug === "wp-rocket"),
-    hasW3TotalCache: plugins.some((p) => p.slug === "w3-total-cache"),
-    hasLiteSpeedCache: plugins.some((p) => p.slug === "litespeed-cache"),
-    hasCloudflare: has("cloudflare") || has("__cf") || has("cf-ray") || has("cf-browser-verification"),
-    cms,
-    cmsVersion: wpVersion,
-    phpVersion,
-    theme,
-    themeVersion: null,
-    plugins,
-    serverSoftware,
-    frameworks,
-    scripts,
-    analytics,
-    metaDescription,
-    responseHeaders,
-    statusCode,
-  };
-
-  const cfHeader = headers.get("cf-ray") || headers.get("server") || "";
-  if (cfHeader.toLowerCase().includes("cloudflare")) {
-    detected.hasCloudflare = true;
-  }
-
-  const heavyCats = ["ecommerce", "page-builder", "membership", "lms", "forms"];
-  detected.heavyPluginsCount = plugins.filter((p) => heavyCats.includes(p.category)).length;
-
-  const cacheSlugs = ["wp-rocket", "w3-total-cache", "litespeed-cache", "wp-super-cache", "wp-fastest-cache", "cache-enabler", "swift-performance"];
-  const cachePlugin = plugins.find((p) => cacheSlugs.includes(p.slug));
-  detected.cachePlugin = cachePlugin ? cachePlugin.name : null;
-
-  return detected;
 }
 
 async function fetchSitemap(baseUrl) {
@@ -779,10 +648,81 @@ async function analyzeSite(domain, workerUrl) {
     // ignore
   }
 
+  // Detect CMS from homepage
+  let cmsFromHtml = null;
   if (html) {
-    const detected = detectCmsAndPlugins(html, headers, statusCode);
-    Object.assign(base, detected);
+    cmsFromHtml = detectCmsFromHtml(html, headers);
   }
+
+  // Probe WordPress via RSS/API/OPML
+  const wpProbe = await probeWordPress(baseUrl);
+
+  // Determine final CMS
+  if (cmsFromHtml === "WordPress" || wpProbe.isWordPress) {
+    base.cms = "WordPress";
+    base.isWordPress = true;
+    base.isPhpSite = true;
+  } else {
+    base.cms = cmsFromHtml;
+    base.isPhpSite = isPhpCms(cmsFromHtml);
+  }
+
+  // Version
+  if (wpProbe.version) {
+    base.cmsVersion = wpProbe.version;
+  } else if (html) {
+    base.cmsVersion = detectWpVersionFromHtml(html);
+  }
+
+  // Plugins
+  if (html && base.isWordPress) {
+    base.plugins = detectPlugins(html);
+  }
+
+  // Theme
+  if (html && base.isWordPress) {
+    base.theme = detectTheme(html);
+  }
+
+  // PHP & Server
+  base.phpVersion = detectPhpVersion(headers);
+  base.serverSoftware = detectServerSoftware(headers);
+
+  // Scripts, analytics, meta, headers
+  if (html) {
+    base.scripts = extractScripts(html);
+    base.analytics = extractAnalytics(html);
+    base.metaDescription = extractMetaDescription(html);
+  }
+  base.responseHeaders = extractInterestingHeaders(headers);
+  base.statusCode = statusCode;
+
+  // Cloudflare
+  const cfHeader = headers.get("cf-ray") || headers.get("server") || "";
+  if (cfHeader.toLowerCase().includes("cloudflare")) {
+    base.hasCloudflare = true;
+  }
+
+  // Plugin flags
+  base.hasWooCommerce = base.plugins.some((p) => p.slug === "woocommerce" || p.slug === "woo-commerce");
+  base.hasElementor = base.plugins.some((p) => p.slug === "elementor" || p.slug === "elementor-pro");
+  base.hasMemberPress = base.plugins.some((p) => p.slug === "memberpress");
+  base.hasLearnDash = base.plugins.some((p) => p.slug === "learndash" || p.slug === "sfwd-lms");
+  base.hasBuddyBoss = base.plugins.some((p) => p.slug === "buddyboss" || p.slug === "buddypress");
+  base.hasContactForm7 = base.plugins.some((p) => p.slug === "contact-form-7" || p.slug === "wpcf7");
+  base.hasGravityForms = base.plugins.some((p) => p.slug === "gravityforms" || p.slug === "gravity-forms");
+  base.hasYoast = base.plugins.some((p) => p.slug === "wordpress-seo" || p.slug === "yoast-seo");
+  base.hasRankMath = base.plugins.some((p) => p.slug === "rank-math");
+  base.hasWPRocket = base.plugins.some((p) => p.slug === "wp-rocket");
+  base.hasW3TotalCache = base.plugins.some((p) => p.slug === "w3-total-cache");
+  base.hasLiteSpeedCache = base.plugins.some((p) => p.slug === "litespeed-cache");
+
+  const heavyCats = ["ecommerce", "page-builder", "membership", "lms", "forms"];
+  base.heavyPluginsCount = base.plugins.filter((p) => heavyCats.includes(p.category)).length;
+
+  const cacheSlugs = ["wp-rocket", "w3-total-cache", "litespeed-cache", "wp-super-cache", "wp-fastest-cache", "cache-enabler", "swift-performance"];
+  const cachePlugin = base.plugins.find((p) => cacheSlugs.includes(p.slug));
+  base.cachePlugin = cachePlugin ? cachePlugin.name : null;
 
   // DNS
   const dns = await analyzeDns(cleanDomain);
