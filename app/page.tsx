@@ -233,9 +233,9 @@ export default function Home() {
             Open source under MIT License. No data leaves your browser.
           </p>
           <div className="flex items-center gap-4 text-sm text-slate-500 dark:text-slate-400">
-            <a href="/docs/ARCHITECTURE.md" className="hover:text-slate-900 dark:hover:text-white transition-colors">Architecture</a>
-            <a href="/docs/FORMULA.md" className="hover:text-slate-900 dark:hover:text-white transition-colors">Formula</a>
-            <a href="/docs/CONTRIBUTING.md" className="hover:text-slate-900 dark:hover:text-white transition-colors">Contribute</a>
+            <a href="https://github.com/zumuuser/php-worker-calculator/blob/main/docs/ARCHITECTURE.md" className="hover:text-slate-900 dark:hover:text-white transition-colors">Architecture</a>
+            <a href="https://github.com/zumuuser/php-worker-calculator/blob/main/docs/FORMULA.md" className="hover:text-slate-900 dark:hover:text-white transition-colors">Formula</a>
+            <a href="https://github.com/zumuuser/php-worker-calculator/blob/main/docs/CONTRIBUTING.md" className="hover:text-slate-900 dark:hover:text-white transition-colors">Contribute</a>
           </div>
         </div>
       </footer>
