@@ -9,8 +9,8 @@ import { BarChart3, Loader2 } from "lucide-react";
 
 const schema = z.object({
   domain: z.string().min(1, "Required"),
-  monthlyPageviews: z.preprocess((val) => Number(val), z.number().min(1)),
-  monthlyUniqueVisitors: z.preprocess((val) => Number(val), z.number().min(1)),
+  monthlyPageviews: z.preprocess((val) => Number(val), z.number().min(1, "Must be at least 1")),
+  monthlyUniqueVisitors: z.preprocess((val) => Number(val), z.number().min(1, "Must be at least 1")),
   pagesPerSession: z.preprocess((val) => Number(val), z.number().min(1).max(50)).default(2.5),
   peakConcurrentUsers: z.preprocess((val) => (val === "" || val == null ? null : Number(val)), z.number().nullable()).default(null),
   peakPercentageOfDaily: z.preprocess((val) => Number(val), z.number().min(1).max(100)).default(20),
@@ -44,8 +44,8 @@ export default function InputForm({ detected, inputs, onSubmit }: Props) {
     resolver: zodResolver(schema) as any,
     defaultValues: {
       domain: inputs.domain,
-      monthlyPageviews: inputs.monthlyPageviews,
-      monthlyUniqueVisitors: inputs.monthlyUniqueVisitors,
+      monthlyPageviews: inputs.monthlyPageviews || undefined,
+      monthlyUniqueVisitors: inputs.monthlyUniqueVisitors || undefined,
       pagesPerSession: inputs.pagesPerSession,
       peakConcurrentUsers: inputs.peakConcurrentUsers,
       peakPercentageOfDaily: inputs.peakPercentageOfDaily,
@@ -64,8 +64,8 @@ export default function InputForm({ detected, inputs, onSubmit }: Props) {
   useEffect(() => {
     reset({
       domain: inputs.domain,
-      monthlyPageviews: inputs.monthlyPageviews,
-      monthlyUniqueVisitors: inputs.monthlyUniqueVisitors,
+      monthlyPageviews: inputs.monthlyPageviews || undefined,
+      monthlyUniqueVisitors: inputs.monthlyUniqueVisitors || undefined,
       pagesPerSession: inputs.pagesPerSession,
       peakConcurrentUsers: inputs.peakConcurrentUsers,
       peakPercentageOfDaily: inputs.peakPercentageOfDaily,
@@ -111,41 +111,54 @@ export default function InputForm({ detected, inputs, onSubmit }: Props) {
 
   return (
     <form onSubmit={handleSubmit(onFormSubmit)}>
-      <div
-        className="border-t pt-8 space-y-10"
-        style={{ borderColor: "var(--color-border)" }}
-      >
+      <div className="border-t pt-8 space-y-10" style={{ borderColor: "var(--color-border)" }}>
         <div className="flex items-center justify-between">
-          <h3 className="font-display text-xl font-medium tracking-tight">Refine calculation</h3>
+          <h3 className="font-display text-xl font-medium tracking-tight">Enter your metrics</h3>
           <p className="text-xs" style={{ color: "var(--color-fg-muted)" }}>
-            Adjust defaults to match your real numbers
+            Required fields are marked with your detected defaults
           </p>
         </div>
 
-        {/* Traffic */}
-        <div className="space-y-4">
-          <h4 className="text-xs font-medium tracking-widest uppercase" style={{ color: "var(--color-fg-secondary)" }}>
-            Traffic
-          </h4>
+        {/* Traffic — highlighted as the critical section */}
+        <div
+          className="p-6 space-y-4"
+          style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <span
+              className="w-2 h-2"
+              style={{ background: "var(--color-fg)" }}
+            />
+            <h4 className="text-xs font-medium tracking-widest uppercase" style={{ color: "var(--color-fg-secondary)" }}>
+              Traffic (required)
+            </h4>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <Field label="Domain" error={errors.domain?.message}>
-              <input {...register("domain")} className="w-full" />
+            <Field label="Monthly pageviews *" error={errors.monthlyPageviews?.message}>
+              <input
+                type="number"
+                {...register("monthlyPageviews")}
+                className="w-full"
+                placeholder="e.g. 50000"
+              />
             </Field>
-            <Field label="Monthly pageviews">
-              <input type="number" {...register("monthlyPageviews")} className="w-full" />
-            </Field>
-            <Field label="Unique visitors">
-              <input type="number" {...register("monthlyUniqueVisitors")} className="w-full" />
+            <Field label="Unique visitors *" error={errors.monthlyUniqueVisitors?.message}>
+              <input
+                type="number"
+                {...register("monthlyUniqueVisitors")}
+                className="w-full"
+                placeholder="e.g. 25000"
+              />
             </Field>
             <Field label="Pages / session">
               <input type="number" step="0.1" {...register("pagesPerSession")} className="w-full" />
             </Field>
-            <Field label="Peak concurrent">
+            <Field label="Peak concurrent users">
               <input
                 type="number"
                 {...register("peakConcurrentUsers", { setValueAs: (v) => (v === "" || v === null ? null : Number(v)) })}
                 className="w-full"
-                placeholder="Auto"
+                placeholder="Leave blank to auto-estimate"
               />
             </Field>
             <Field label="Peak % of daily">
@@ -196,7 +209,7 @@ export default function InputForm({ detected, inputs, onSubmit }: Props) {
                 type="number"
                 {...register("currentWorkerLimit", { setValueAs: (v) => (v === "" || v === null ? null : Number(v)) })}
                 className="w-full"
-                placeholder="N/A"
+                placeholder="If migrating from another host"
               />
             </Field>
           </div>
@@ -253,10 +266,10 @@ export default function InputForm({ detected, inputs, onSubmit }: Props) {
             ) : (
               <BarChart3 className="w-4 h-4" />
             )}
-            Recalculate
+            Calculate PHP workers
           </button>
           <p className="text-xs" style={{ color: "var(--color-fg-muted)" }}>
-            Updates instantly in your browser
+            Requires monthly pageviews and unique visitors
           </p>
         </div>
       </div>

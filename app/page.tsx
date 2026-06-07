@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { CalculatorInputs, DetectedTech, CalculationResult, SavedReport } from "@/types";
+import { CalculatorInputs, DetectedTech, CalculationResult, SavedReport, ScanStatus } from "@/types";
 import { calculateWorkers } from "@/lib/calculator";
 import { saveReport } from "@/lib/storage";
-import { analyzeSite } from "@/lib/scraper";
+import { analyzeSite, AnalysisResult } from "@/lib/scraper";
 import ThemeToggle from "@/components/theme-toggle";
 import UrlInput from "@/components/url-input";
 import AutoDetectPanel from "@/components/auto-detect-panel";
@@ -15,6 +15,7 @@ import HistoryDrawer from "@/components/history-drawer";
 import { Cpu, Code2, History, ArrowRight } from "lucide-react";
 
 const defaultDetected: DetectedTech = {
+  cms: null,
   isWordPress: false,
   hasWooCommerce: false,
   hasElementor: false,
@@ -35,18 +36,26 @@ const defaultDetected: DetectedTech = {
   ttfb: null,
   lcp: null,
   cls: null,
+  frameworks: [],
 };
 
-function buildDefaultInputs(detected: DetectedTech, domain: string): CalculatorInputs {
+const defaultStatus: ScanStatus = {
+  homepageFetched: false,
+  sitemapFetched: false,
+  pageSpeedFetched: false,
+  proxyUsed: null,
+};
+
+function buildInputsFromDetection(detected: DetectedTech, domain: string): CalculatorInputs {
   let siteType: CalculatorInputs["siteType"] = "blog";
   let dynamicContentPercent = 20;
   let loggedInTrafficPercent = 5;
-  let activePluginCount = 10;
-  let objectCacheEnabled: CalculatorInputs["objectCacheEnabled"] = "unknown";
-  let cdnEnabled: CalculatorInputs["cdnEnabled"] = "unknown";
-  let avgPhpResponseTimeMs = 300;
+  let activePluginCount = detected.heavyPluginsCount > 0 ? Math.max(10, detected.heavyPluginsCount * 3) : 10;
+  let objectCacheEnabled: CalculatorInputs["objectCacheEnabled"] = detected.cachePlugin ? "yes" : "unknown";
+  let cdnEnabled: CalculatorInputs["cdnEnabled"] = detected.hasCloudflare ? "yes" : "unknown";
+  let avgPhpResponseTimeMs = detected.ttfb && detected.ttfb > 0 ? detected.ttfb : 300;
 
-  if (detected.hasWooCommerce) {
+  if (detected.hasWooCommerce || detected.cms === "Shopify" || detected.cms === "Magento") {
     siteType = "woocommerce";
     dynamicContentPercent = 40;
   } else if (detected.hasLearnDash) {
@@ -57,17 +66,18 @@ function buildDefaultInputs(detected: DetectedTech, domain: string): CalculatorI
     siteType = "membership";
     dynamicContentPercent = 50;
     loggedInTrafficPercent = 30;
+  } else if (detected.cms === "Drupal" || detected.cms === "Joomla") {
+    siteType = "mixed";
+    dynamicContentPercent = 30;
+  } else if (detected.cms === "Ghost" || detected.cms === "Next.js" || detected.cms === "Astro") {
+    siteType = "blog";
+    dynamicContentPercent = 15;
   }
-
-  if (detected.cachePlugin) objectCacheEnabled = "yes";
-  if (detected.hasCloudflare) cdnEnabled = "yes";
-  if (detected.heavyPluginsCount > 0) activePluginCount = Math.max(10, detected.heavyPluginsCount * 3);
-  if (detected.ttfb && detected.ttfb > 0) avgPhpResponseTimeMs = detected.ttfb;
 
   return {
     domain,
-    monthlyPageviews: 30000,
-    monthlyUniqueVisitors: 15000,
+    monthlyPageviews: 0,
+    monthlyUniqueVisitors: 0,
     pagesPerSession: 2.5,
     peakConcurrentUsers: null,
     peakPercentageOfDaily: 20,
@@ -87,12 +97,12 @@ function buildDefaultInputs(detected: DetectedTech, domain: string): CalculatorI
 export default function Home() {
   const [domain, setDomain] = useState("");
   const [detected, setDetected] = useState<DetectedTech>(defaultDetected);
+  const [scanStatus, setScanStatus] = useState<ScanStatus>(defaultStatus);
   const [inputs, setInputs] = useState<CalculatorInputs | null>(null);
   const [result, setResult] = useState<CalculationResult | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
   const [showDetailed, setShowDetailed] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const resultRef = useRef<HTMLDivElement>(null);
 
   const runCalculation = useCallback((data: CalculatorInputs) => {
@@ -115,25 +125,24 @@ export default function Home() {
     setDomain(url);
     setAnalyzing(true);
     setResult(null);
-    setShowForm(false);
     setShowDetailed(false);
     try {
-      const tech = await analyzeSite(url);
-      setDetected(tech);
-      const defaults = buildDefaultInputs(tech, url);
+      const analysis: AnalysisResult = await analyzeSite(url);
+      setDetected(analysis.tech);
+      setScanStatus(analysis.status);
+      const defaults = buildInputsFromDetection(analysis.tech, url);
       setInputs(defaults);
-      runCalculation(defaults);
     } catch {
-      const defaults = buildDefaultInputs(defaultDetected, url);
+      const defaults = buildInputsFromDetection(defaultDetected, url);
       setDetected(defaultDetected);
+      setScanStatus(defaultStatus);
       setInputs(defaults);
-      runCalculation(defaults);
     } finally {
       setAnalyzing(false);
     }
-  }, [runCalculation]);
+  }, []);
 
-  const handleRefine = useCallback((data: CalculatorInputs) => {
+  const handleCalculate = useCallback((data: CalculatorInputs) => {
     setInputs(data);
     runCalculation(data);
   }, [runCalculation]);
@@ -146,6 +155,8 @@ export default function Home() {
     setShowHistory(false);
     setShowDetailed(true);
   }, []);
+
+  const hasAnalyzed = inputs !== null;
 
   return (
     <main className="min-h-screen" style={{ background: "var(--color-bg)", color: "var(--color-fg)" }}>
@@ -160,18 +171,9 @@ export default function Home() {
             <button
               onClick={() => setShowHistory(true)}
               className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium tracking-wide uppercase transition-colors border"
-              style={{
-                color: "var(--color-muted)",
-                borderColor: "var(--color-border)",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.color = "var(--color-fg)";
-                (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.color = "var(--color-muted)";
-                (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)";
-              }}
+              style={{ color: "var(--color-muted)", borderColor: "var(--color-border)" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-muted)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)"; }}
             >
               <History className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">History</span>
@@ -181,18 +183,9 @@ export default function Home() {
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium tracking-wide uppercase transition-colors border"
-              style={{
-                color: "var(--color-muted)",
-                borderColor: "var(--color-border)",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.color = "var(--color-fg)";
-                (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.color = "var(--color-muted)";
-                (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)";
-              }}
+              style={{ color: "var(--color-muted)", borderColor: "var(--color-border)" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-muted)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)"; }}
             >
               <Code2 className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">GitHub</span>
@@ -223,80 +216,56 @@ export default function Home() {
       </section>
 
       {/* Results area */}
-      {(result || analyzing) && (
+      {hasAnalyzed && (
         <section ref={resultRef} className="max-w-6xl mx-auto px-6 pb-24 space-y-12">
           {/* Detected Tech */}
-          {!analyzing && <AutoDetectPanel detected={detected} domain={domain} />}
+          <AutoDetectPanel detected={detected} domain={domain} status={scanStatus} />
+
+          {/* Input Form — always shown after analyze, user must fill traffic and calculate */}
+          <div className="animate-fade-up">
+            <InputForm detected={detected} inputs={inputs!} onSubmit={handleCalculate} />
+          </div>
 
           {/* Result */}
-          {!analyzing && result && inputs && (
-            <div className="animate-fade-up">
-              <SimpleResult result={result} inputs={inputs} />
-            </div>
-          )}
+          {result && (
+            <div className="animate-fade-up delay-100 space-y-8">
+              <SimpleResult result={result} inputs={inputs!} />
 
-          {/* Actions */}
-          {!analyzing && result && inputs && (
-            <div className="flex flex-wrap items-center gap-4 animate-fade-up delay-100">
-              <button
-                onClick={() => setShowForm((s) => !s)}
-                className="inline-flex items-center gap-2 px-5 py-3 text-sm font-medium tracking-wide uppercase transition-all"
-                style={{
-                  background: showForm ? "transparent" : "var(--color-fg)",
-                  color: showForm ? "var(--color-fg)" : "var(--color-bg)",
-                  border: "1px solid var(--color-fg)",
-                }}
-              >
-                {showForm ? "Close refine" : "Refine manually"}
-                <ArrowRight className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setShowDetailed((s) => !s)}
-                className="inline-flex items-center gap-2 px-5 py-3 text-sm font-medium tracking-wide uppercase transition-all"
-                style={{
-                  background: "transparent",
-                  color: "var(--color-fg)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border-strong)";
-                }}
-              >
-                {showDetailed ? "Hide detailed report" : "Detailed report"}
-              </button>
-            </div>
-          )}
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => setShowDetailed((s) => !s)}
+                  className="inline-flex items-center gap-2 px-5 py-3 text-sm font-medium tracking-wide uppercase transition-all"
+                  style={{
+                    background: "transparent",
+                    color: "var(--color-fg)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border-strong)"; }}
+                >
+                  {showDetailed ? "Hide detailed report" : "Detailed report"}
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
 
-          {/* Manual Form */}
-          {showForm && inputs && (
-            <div className="animate-fade-up delay-100">
-              <InputForm detected={detected} inputs={inputs} onSubmit={handleRefine} />
-            </div>
-          )}
-
-          {/* Detailed Report */}
-          {showDetailed && result && inputs && (
-            <div className="animate-fade-up delay-200">
-              <DetailedReport result={result} inputs={inputs} />
+              {showDetailed && (
+                <div className="animate-fade-up delay-100">
+                  <DetailedReport result={result} inputs={inputs!} />
+                </div>
+              )}
             </div>
           )}
         </section>
       )}
 
       {/* Empty state */}
-      {!result && !analyzing && (
+      {!hasAnalyzed && (
         <section className="max-w-6xl mx-auto px-6 pb-24">
-          <div
-            className="border-t pt-12 grid grid-cols-1 md:grid-cols-3 gap-8"
-            style={{ borderColor: "var(--color-border)" }}
-          >
+          <div className="border-t pt-12 grid grid-cols-1 md:grid-cols-3 gap-8" style={{ borderColor: "var(--color-border)" }}>
             {[
-              { num: "01", title: "Enter URL", desc: "Paste your domain. We scan for WordPress, plugins, caching, and performance metrics." },
-              { num: "02", title: "Auto-detect", desc: "Our engine reads your tech stack from public signals — robots.txt respected, no aggressive scanning." },
-              { num: "03", title: "Get result", desc: "Instant calculation based on your traffic, plugins, and site type. Refine manually if needed." },
+              { num: "01", title: "Enter URL", desc: "Paste your domain. We scan for WordPress, plugins, caching, and performance metrics via CORS proxies." },
+              { num: "02", title: "Review detection", desc: "We show exactly what we found and what we couldn't. No hidden assumptions." },
+              { num: "03", title: "Enter traffic & calculate", desc: "Fill in your real traffic numbers. We calculate instantly in your browser." },
             ].map((step) => (
               <div key={step.num} className="space-y-3">
                 <span className="font-display text-4xl font-medium" style={{ color: "var(--color-fg-muted)" }}>

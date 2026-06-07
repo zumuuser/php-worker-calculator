@@ -1,4 +1,5 @@
 export interface DetectedTech {
+  cms: string | null;
   isWordPress: boolean;
   hasWooCommerce: boolean;
   hasElementor: boolean;
@@ -19,6 +20,14 @@ export interface DetectedTech {
   ttfb: number | null;
   lcp: number | null;
   cls: number | null;
+  frameworks: string[];
+}
+
+export interface ScanStatus {
+  homepageFetched: boolean;
+  sitemapFetched: boolean;
+  pageSpeedFetched: boolean;
+  proxyUsed: string | null;
 }
 
 export interface CalculatorInputs {

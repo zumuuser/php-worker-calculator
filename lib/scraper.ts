@@ -1,41 +1,120 @@
-import { DetectedTech } from "@/types";
+import { DetectedTech, ScanStatus } from "@/types";
+
+const CORS_PROXIES = [
+  (url: string) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+];
 
 const HEAVY_PLUGINS = [
   "woocommerce", "elementor", "memberpress", "learndash",
   "buddyboss", "buddypress", "gravityforms", "wpforms",
-  " Restrict Content", "pmpro", "lifterlms", "tutorlms",
+  "restrict-content", "pmpro", "lifterlms", "tutorlms",
   "easy-digital-downloads", "wp-ecommerce", "bbpress",
   "eventon", "the-events-calendar", "booking",
+  "advanced-custom-fields", "acf-", "jetpack",
+  "slider-revolution", "revslider", "wp-bakery",
+  "divi-builder", "fusion-builder", " Beaver",
 ];
 
 const CACHE_PLUGINS = [
   "wp-rocket", "w3-total-cache", "litespeed-cache",
   "wp-super-cache", "wp-fastest-cache", "cache-enabler",
   "swift-performance", "borlabs-cache", "comet-cache",
+  "hyper-cache", "redis-cache", "wp-redis",
 ];
 
-function detectFromHtml(html: string): Partial<DetectedTech> {
+async function fetchViaProxy(url: string): Promise<{ text: string; headers: Headers; proxy: string } | null> {
+  for (const proxyFn of CORS_PROXIES) {
+    const proxyUrl = proxyFn(url);
+    try {
+      const res = await fetch(proxyUrl, { cache: "no-store" });
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (text.length < 100) continue; // Probably an error page
+      return { text, headers: res.headers, proxy: proxyUrl.split("?")[0] };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+async function fetchDirect(url: string): Promise<{ text: string; headers: Headers } | null> {
+  try {
+    const res = await fetch(url, { mode: "cors", cache: "no-store" });
+    if (!res.ok) return null;
+    return { text: await res.text(), headers: res.headers };
+  } catch {
+    return null;
+  }
+}
+
+function detectCmsAndPlugins(html: string, headers: Headers): Partial<DetectedTech> & { cms: string | null; frameworks: string[] } {
   const lower = html.toLowerCase();
-  const text = html;
-
   const has = (str: string) => lower.includes(str.toLowerCase());
+  const frameworks: string[] = [];
+  let cms: string | null = null;
 
+  // ── CMS Detection ──
+  if (has("wp-content") || has("wp-includes") || has("wp-json") || has('generator" content="wordpress') || has("/wp-")) {
+    cms = "WordPress";
+  } else if (has("shopify") || has("myshopify") || has("cdn.shopify") || has("Shopify.theme")) {
+    cms = "Shopify";
+  } else if (has("webflow") || has("data-wf-domain") || has("w-nav")) {
+    cms = "Webflow";
+  } else if (has("squarespace") || has("static.squarespace") || has("squarespace-cdn")) {
+    cms = "Squarespace";
+  } else if (has("wix") || has("wix-image") || has("static.wixstatic")) {
+    cms = "Wix";
+  } else if (has("drupal") || has("sites/default")) {
+    cms = "Drupal";
+  } else if (has("joomla") || has("/media/jui") || has("/templates/")) {
+    cms = "Joomla";
+  } else if (has("magento") || has("mage-") || has("amasty")) {
+    cms = "Magento";
+  } else if (has("ghost") || has("@tryghost")) {
+    cms = "Ghost";
+  } else if (has("next.js") || has("__next") || has("/_next/static")) {
+    cms = "Next.js";
+  } else if (has("gatsby") || has("___gatsby")) {
+    cms = "Gatsby";
+  } else if (has("astro")) {
+    cms = "Astro";
+  }
+
+  // ── Framework Detection ──
+  if (has("react") || has("data-reactroot") || has("__react")) frameworks.push("React");
+  if (has("next.js") || has("__next") || has("/_next/static")) frameworks.push("Next.js");
+  if (has("vue.js") || has("__vue") || has("data-v-")) frameworks.push("Vue");
+  if (has("nuxt") || has("__nuxt")) frameworks.push("Nuxt");
+  if (has("angular") || has("ng-app") || has("ng-version")) frameworks.push("Angular");
+  if (has("svelte") || has("svelte-")) frameworks.push("Svelte");
+  if (has("remix") || has("__remix")) frameworks.push("Remix");
+  if (has("jquery") || has("jquery.js") || has("jquery.min.js")) frameworks.push("jQuery");
+
+  // ── WordPress Plugin Detection ──
   const detected: Partial<DetectedTech> = {
-    isWordPress: has("wp-content") || has("wp-includes") || has('/wp-json') || has('generator" content="wordpress'),
-    hasWooCommerce: has("woocommerce") || has("wc-") || has("wc_cart_fragments"),
-    hasElementor: has("elementor"),
-    hasMemberPress: has("memberpress") || has("mepr-"),
-    hasLearnDash: has("learndash") || has("ld-"),
-    hasBuddyBoss: has("buddyboss") || has("buddypress"),
-    hasContactForm7: has("contact-form-7") || has("wpcf7"),
-    hasGravityForms: has("gravityforms") || has("gform"),
+    isWordPress: cms === "WordPress",
+    hasWooCommerce: has("woocommerce") || has("wc-") || has("wc_cart_fragments") || has("wc_add_to_cart"),
+    hasElementor: has("elementor") || has("elementor-"),
+    hasMemberPress: has("memberpress") || has("mepr-") || has("mepr_"),
+    hasLearnDash: has("learndash") || has("ld-") || has("learndash-wrapper"),
+    hasBuddyBoss: has("buddyboss") || has("buddypress") || has("bp-"),
+    hasContactForm7: has("contact-form-7") || has("wpcf7") || has("wpcf7_"),
+    hasGravityForms: has("gravityforms") || has("gform") || has("gforms_"),
     hasYoast: has("yoast") || has("yoast-seo"),
-    hasRankMath: has("rank-math") || has("rankmath"),
+    hasRankMath: has("rank-math") || has("rankmath") || has("rank-math-seo"),
     hasWPRocket: has("wp-rocket"),
     hasW3TotalCache: has("w3-total-cache"),
-    hasLiteSpeedCache: has("litespeed-cache"),
-    hasCloudflare: has("cloudflare") || has("__cf") || has("cf-ray"),
+    hasLiteSpeedCache: has("litespeed-cache") || has("litespeed"),
+    hasCloudflare: has("cloudflare") || has("__cf") || has("cf-ray") || has("cf-browser-verification"),
   };
+
+  // Check server headers for Cloudflare
+  const cfHeader = headers.get("cf-ray") || headers.get("server") || "";
+  if (cfHeader.toLowerCase().includes("cloudflare")) {
+    detected.hasCloudflare = true;
+  }
 
   let heavyCount = 0;
   HEAVY_PLUGINS.forEach((p) => {
@@ -52,50 +131,28 @@ function detectFromHtml(html: string): Partial<DetectedTech> {
   }
   detected.cachePlugin = cachePlugin;
 
-  return detected;
+  return { ...detected, cms, frameworks };
 }
 
-export async function fetchRobotsTxt(domain: string): Promise<string | null> {
-  try {
-    const url = new URL("/robots.txt", domain.startsWith("http") ? domain : `https://${domain}`).toString();
-    const res = await fetch(url, { mode: "cors", cache: "no-store" });
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
-    return null;
-  }
-}
-
-export function isAllowedByRobots(robotsTxt: string | null, path: string): boolean {
-  if (!robotsTxt) return true;
-  const lines = robotsTxt.split("\n");
-  let relevant = false;
-  for (const raw of lines) {
-    const line = raw.trim().toLowerCase();
-    if (line.startsWith("user-agent:") && (line.includes("*") || line.includes("bot"))) {
-      relevant = true;
-    } else if (line.startsWith("user-agent:")) {
-      relevant = false;
-    }
-    if (relevant && line.startsWith("disallow:")) {
-      const dis = line.replace("disallow:", "").trim();
-      if (dis === "/") return false;
-      if (path.startsWith(dis)) return false;
-    }
-  }
-  return true;
-}
-
-export async function fetchSitemap(domain: string): Promise<{ count: number; lastmods: string[] } | null> {
+async function fetchSitemap(domain: string, proxyUsed: string | null): Promise<{ count: number; lastmods: string[] } | null> {
   const base = domain.startsWith("http") ? domain : `https://${domain}`;
   const paths = ["/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml", "/sitemap-index.xml"];
 
   for (const p of paths) {
     try {
       const url = new URL(p, base).toString();
-      const res = await fetch(url, { mode: "cors", cache: "no-store" });
-      if (!res.ok) continue;
-      const text = await res.text();
+      let text: string;
+
+      if (proxyUsed) {
+        const proxyRes = await fetch(`${proxyUsed}${proxyUsed.includes("allorigins") ? "?url=" : "?url="}${encodeURIComponent(url)}`, { cache: "no-store" });
+        if (!proxyRes.ok) continue;
+        text = await proxyRes.text();
+      } else {
+        const direct = await fetchDirect(url);
+        if (!direct) continue;
+        text = direct.text;
+      }
+
       const urlMatches = text.match(/<url>/g);
       const count = urlMatches ? urlMatches.length : 0;
       const lastmods = [...text.matchAll(/<lastmod>([^<]+)<\/lastmod>/g)].map((m) => m[1]);
@@ -107,18 +164,7 @@ export async function fetchSitemap(domain: string): Promise<{ count: number; las
   return null;
 }
 
-export async function fetchHomepage(domain: string): Promise<string | null> {
-  try {
-    const url = new URL("/", domain.startsWith("http") ? domain : `https://${domain}`).toString();
-    const res = await fetch(url, { mode: "cors", cache: "no-store" });
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
-    return null;
-  }
-}
-
-export async function fetchPageSpeed(domain: string): Promise<{ ttfb: number | null; lcp: number | null; cls: number | null }> {
+async function fetchPageSpeed(domain: string): Promise<{ ttfb: number | null; lcp: number | null; cls: number | null }> {
   try {
     const url = domain.startsWith("http") ? domain : `https://${domain}`;
     const apiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&category=PERFORMANCE&strategy=desktop`;
@@ -139,8 +185,17 @@ export async function fetchPageSpeed(domain: string): Promise<{ ttfb: number | n
   }
 }
 
-export async function analyzeSite(domain: string): Promise<DetectedTech> {
+export interface AnalysisResult {
+  tech: DetectedTech;
+  status: ScanStatus;
+}
+
+export async function analyzeSite(domain: string): Promise<AnalysisResult> {
+  const cleanDomain = domain.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  const baseUrl = `https://${cleanDomain}`;
+
   const base: DetectedTech = {
+    cms: null,
     isWordPress: false,
     hasWooCommerce: false,
     hasElementor: false,
@@ -161,31 +216,54 @@ export async function analyzeSite(domain: string): Promise<DetectedTech> {
     ttfb: null,
     lcp: null,
     cls: null,
+    frameworks: [],
   };
 
-  const cleanDomain = domain.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  const status: ScanStatus = {
+    homepageFetched: false,
+    sitemapFetched: false,
+    pageSpeedFetched: false,
+    proxyUsed: null,
+  };
 
-  const robots = await fetchRobotsTxt(cleanDomain);
-  const homepageAllowed = isAllowedByRobots(robots, "/");
-  const sitemapAllowed = isAllowedByRobots(robots, "/sitemap.xml");
+  // Try homepage fetch (direct first, then proxy)
+  let html: string | null = null;
+  let headers = new Headers();
 
-  const [sitemap, html, psi] = await Promise.all([
-    sitemapAllowed ? fetchSitemap(cleanDomain) : Promise.resolve(null),
-    homepageAllowed ? fetchHomepage(cleanDomain) : Promise.resolve(null),
-    fetchPageSpeed(cleanDomain),
-  ]);
-
-  if (html) {
-    Object.assign(base, detectFromHtml(html));
+  const direct = await fetchDirect(baseUrl);
+  if (direct) {
+    html = direct.text;
+    headers = direct.headers;
+    status.homepageFetched = true;
+  } else {
+    const proxy = await fetchViaProxy(baseUrl);
+    if (proxy) {
+      html = proxy.text;
+      headers = proxy.headers;
+      status.homepageFetched = true;
+      status.proxyUsed = proxy.proxy;
+    }
   }
 
+  // Detect from HTML
+  if (html) {
+    const detected = detectCmsAndPlugins(html, headers);
+    Object.assign(base, detected);
+  }
+
+  // Try sitemap
+  const sitemap = await fetchSitemap(cleanDomain, status.proxyUsed);
   if (sitemap) {
     base.estimatedPages = sitemap.count;
+    status.sitemapFetched = true;
   }
 
+  // PageSpeed Insights (always try, works cross-origin)
+  const psi = await fetchPageSpeed(cleanDomain);
   base.ttfb = psi.ttfb;
   base.lcp = psi.lcp;
   base.cls = psi.cls;
+  status.pageSpeedFetched = psi.ttfb !== null || psi.lcp !== null;
 
-  return base;
+  return { tech: base, status };
 }

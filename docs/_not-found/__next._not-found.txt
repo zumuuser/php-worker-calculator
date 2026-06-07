@@ -2,4 +2,4 @@
 2:I[64815,["/php-worker-calculator/_next/static/chunks/1k2wofdmezcn1.js","/php-worker-calculator/_next/static/chunks/0vmoz4f35utno.js"],"default"]
 3:I[85990,["/php-worker-calculator/_next/static/chunks/1k2wofdmezcn1.js","/php-worker-calculator/_next/static/chunks/0vmoz4f35utno.js"],"default"]
 4:[]
-0:{"rsc":["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","template":["$","$L3",null,{}]}]]}],"isPartial":false,"staleTime":300,"varyParams":"$W4","buildId":"BakBMG4lW-W4vKBSGMnnx"}
+0:{"rsc":["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","template":["$","$L3",null,{}]}]]}],"isPartial":false,"staleTime":300,"varyParams":"$W4","buildId":"0Wgd4ikPyWSfmWuJvH9tq"}
