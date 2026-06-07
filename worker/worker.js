@@ -239,7 +239,7 @@ async function fetchPageSpeed(url) {
   }
 }
 
-async function analyzeSite(domain) {
+async function analyzeSite(domain, workerUrl) {
   const baseUrl = domain.startsWith("http") ? domain : `https://${domain}`;
   const cleanDomain = domain.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
@@ -273,7 +273,7 @@ async function analyzeSite(domain) {
     sitemapFetched: false,
     pageSpeedFetched: false,
     dnsFetched: false,
-    proxyUsed: "Cloudflare Worker (server-side)",
+    proxyUsed: workerUrl,
   };
 
   // Fetch homepage (server-side = no CORS issues)
@@ -373,7 +373,7 @@ export default {
         return jsonResponse({ error: "Invalid URL format" }, 400);
       }
 
-      const result = await analyzeSite(cleanTarget);
+      const result = await analyzeSite(cleanTarget, url.origin);
       return jsonResponse(result);
     }
 

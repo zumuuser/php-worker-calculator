@@ -68,7 +68,7 @@ export default function AutoDetectPanel({ detected, domain, status, dns }: Props
         {status.proxyUsed && (
           <span className="inline-flex items-center gap-1">
             <Wifi className="w-3 h-3" />
-            Via {new URL(status.proxyUsed).hostname}
+            Via {status.proxyUsed.startsWith("http") ? new URL(status.proxyUsed).hostname : status.proxyUsed}
           </span>
         )}
       </div>
