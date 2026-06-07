@@ -1,5 +1,15 @@
+export interface DetectedPlugin {
+  slug: string;
+  name: string;
+  category: 'ecommerce' | 'seo' | 'cache' | 'security' | 'forms' | 'page-builder' | 'membership' | 'lms' | 'backup' | 'analytics' | 'other';
+}
+
 export interface DetectedTech {
   cms: string | null;
+  cmsVersion: string | null;
+  phpVersion: string | null;
+  theme: string | null;
+  themeVersion: string | null;
   isWordPress: boolean;
   hasWooCommerce: boolean;
   hasElementor: boolean;
@@ -21,6 +31,17 @@ export interface DetectedTech {
   lcp: number | null;
   cls: number | null;
   frameworks: string[];
+  plugins: DetectedPlugin[];
+  serverSoftware: string | null;
+}
+
+export interface ScanStatus {
+  homepageFetched: boolean;
+  sitemapFetched: boolean;
+  pageSpeedFetched: boolean;
+  dnsFetched: boolean;
+  proxyUsed: string | null;
+  pageSpeedRateLimited: boolean;
 }
 
 export interface DnsInfo {
@@ -32,14 +53,6 @@ export interface DnsInfo {
   hostingProvider: string | null;
   cdnProvider: string | null;
   emailProvider: string | null;
-}
-
-export interface ScanStatus {
-  homepageFetched: boolean;
-  sitemapFetched: boolean;
-  pageSpeedFetched: boolean;
-  dnsFetched: boolean;
-  proxyUsed: string | null;
 }
 
 export interface ApiKeys {

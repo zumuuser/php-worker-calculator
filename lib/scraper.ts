@@ -1,4 +1,4 @@
-import { DetectedTech, ScanStatus } from "@/types";
+import { DetectedTech, ScanStatus, DetectedPlugin } from "@/types";
 import { DnsInfo, analyzeDns } from "./dns";
 import { getApiKeys } from "./api-keys";
 
@@ -6,23 +6,110 @@ const CORS_PROXIES = [
   (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
 ];
 
-const HEAVY_PLUGINS = [
-  "woocommerce", "elementor", "memberpress", "learndash",
-  "buddyboss", "buddypress", "gravityforms", "wpforms",
-  "restrict-content", "pmpro", "lifterlms", "tutorlms",
-  "easy-digital-downloads", "wp-ecommerce", "bbpress",
-  "eventon", "the-events-calendar", "booking",
-  "advanced-custom-fields", "acf-", "jetpack",
-  "slider-revolution", "revslider", "wp-bakery",
-  "divi-builder", "fusion-builder", "beaver",
-];
+const PLUGIN_MAP: Record<string, { name: string; category: DetectedPlugin["category"] }> = {
+  woocommerce: { name: "WooCommerce", category: "ecommerce" },
+  "woo-commerce": { name: "WooCommerce", category: "ecommerce" },
+  elementor: { name: "Elementor", category: "page-builder" },
+  "elementor-pro": { name: "Elementor Pro", category: "page-builder" },
+  memberpress: { name: "MemberPress", category: "membership" },
+  learndash: { name: "LearnDash", category: "lms" },
+  "sfwd-lms": { name: "LearnDash", category: "lms" },
+  buddyboss: { name: "BuddyBoss", category: "membership" },
+  buddypress: { name: "BuddyPress", category: "membership" },
+  "contact-form-7": { name: "Contact Form 7", category: "forms" },
+  wpcf7: { name: "Contact Form 7", category: "forms" },
+  gravityforms: { name: "Gravity Forms", category: "forms" },
+  "gravity-forms": { name: "Gravity Forms", category: "forms" },
+  "wordpress-seo": { name: "Yoast SEO", category: "seo" },
+  "yoast-seo": { name: "Yoast SEO", category: "seo" },
+  "rank-math": { name: "Rank Math", category: "seo" },
+  "wp-rocket": { name: "WP Rocket", category: "cache" },
+  "w3-total-cache": { name: "W3 Total Cache", category: "cache" },
+  "litespeed-cache": { name: "LiteSpeed Cache", category: "cache" },
+  "wp-super-cache": { name: "WP Super Cache", category: "cache" },
+  "wp-fastest-cache": { name: "WP Fastest Cache", category: "cache" },
+  "cache-enabler": { name: "Cache Enabler", category: "cache" },
+  "swift-performance": { name: "Swift Performance", category: "cache" },
+  jetpack: { name: "Jetpack", category: "other" },
+  akismet: { name: "Akismet", category: "security" },
+  wordfence: { name: "Wordfence", category: "security" },
+  sucuri: { name: "Sucuri", category: "security" },
+  "advanced-custom-fields": { name: "Advanced Custom Fields", category: "other" },
+  acf: { name: "Advanced Custom Fields", category: "other" },
+  "slider-revolution": { name: "Slider Revolution", category: "page-builder" },
+  revslider: { name: "Slider Revolution", category: "page-builder" },
+  js_composer: { name: "WPBakery Page Builder", category: "page-builder" },
+  wpbakery: { name: "WPBakery Page Builder", category: "page-builder" },
+  "divi-builder": { name: "Divi Builder", category: "page-builder" },
+  "fusion-builder": { name: "Fusion Builder", category: "page-builder" },
+  "beaver-builder": { name: "Beaver Builder", category: "page-builder" },
+  "the-events-calendar": { name: "The Events Calendar", category: "other" },
+  eventon: { name: "EventON", category: "other" },
+  "easy-digital-downloads": { name: "Easy Digital Downloads", category: "ecommerce" },
+  "restrict-content-pro": { name: "Restrict Content Pro", category: "membership" },
+  pmpro: { name: "Paid Memberships Pro", category: "membership" },
+  lifterlms: { name: "LifterLMS", category: "lms" },
+  tutorlms: { name: "Tutor LMS", category: "lms" },
+  bbpress: { name: "bbPress", category: "membership" },
+  wpforms: { name: "WPForms", category: "forms" },
+  "ninja-forms": { name: "Ninja Forms", category: "forms" },
+  formidable: { name: "Formidable Forms", category: "forms" },
+  "mailchimp-for-wp": { name: "Mailchimp for WP", category: "other" },
+  fluentform: { name: "Fluent Forms", category: "forms" },
+  weglot: { name: "Weglot", category: "other" },
+  polylang: { name: "Polylang", category: "other" },
+  wpml: { name: "WPML", category: "other" },
+  "google-analytics-for-wordpress": { name: "MonsterInsights", category: "analytics" },
+  exactmetrics: { name: "ExactMetrics", category: "analytics" },
+  redirection: { name: "Redirection", category: "seo" },
+  "duplicate-post": { name: "Duplicate Post", category: "other" },
+  updraftplus: { name: "UpdraftPlus", category: "backup" },
+  backupbuddy: { name: "BackupBuddy", category: "backup" },
+  "all-in-one-wp-migration": { name: "All-in-One WP Migration", category: "backup" },
+  "wp-optimize": { name: "WP-Optimize", category: "cache" },
+  tablepress: { name: "TablePress", category: "other" },
+  "wp-migrate-db": { name: "WP Migrate DB", category: "backup" },
+  "query-monitor": { name: "Query Monitor", category: "other" },
+  "woocommerce-subscriptions": { name: "WooCommerce Subscriptions", category: "ecommerce" },
+  "woocommerce-memberships": { name: "WooCommerce Memberships", category: "membership" },
+  "essential-addons-for-elementor-lite": { name: "Essential Addons for Elementor", category: "page-builder" },
+};
 
-const CACHE_PLUGINS = [
-  "wp-rocket", "w3-total-cache", "litespeed-cache",
-  "wp-super-cache", "wp-fastest-cache", "cache-enabler",
-  "swift-performance", "borlabs-cache", "comet-cache",
-  "hyper-cache", "redis-cache", "wp-redis",
-];
+function extractPlugins(html: string): DetectedPlugin[] {
+  const matches = [...html.matchAll(/wp-content\/plugins\/([^\/"'?\s]+)/gi)];
+  const slugs = [...new Set(matches.map((m) => m[1].toLowerCase()))];
+  return slugs.map((slug) => {
+    const known = PLUGIN_MAP[slug];
+    return {
+      slug,
+      name: known?.name || slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      category: known?.category || "other",
+    };
+  });
+}
+
+function extractThemes(html: string): string[] {
+  const matches = [...html.matchAll(/wp-content\/themes\/([^\/"'?\s]+)/gi)];
+  return [...new Set(matches.map((m) => m[1]))];
+}
+
+function detectWordPressVersion(html: string): string | null {
+  const meta = html.match(/<meta[^>]+name=["']generator["'][^>]+content=["']WordPress\s+([0-9.]+)/i);
+  if (meta) return meta[1];
+  const other = html.match(/WordPress\s+([0-9.]+)/i);
+  if (other) return other[1];
+  return null;
+}
+
+function detectPhpVersion(headers: Headers): string | null {
+  const powered = headers.get("x-powered-by") || "";
+  const match = powered.match(/PHP\/([0-9.]+)/i);
+  return match ? match[1] : null;
+}
+
+function detectServerSoftware(headers: Headers): string | null {
+  return headers.get("server") || null;
+}
 
 async function fetchViaProxy(url: string): Promise<{ text: string; headers: Headers; proxy: string } | null> {
   for (const proxyFn of CORS_PROXIES) {
@@ -50,26 +137,25 @@ async function fetchDirect(url: string): Promise<{ text: string; headers: Header
   }
 }
 
-function detectCmsAndPlugins(html: string, headers: Headers): Partial<DetectedTech> & { cms: string | null; frameworks: string[] } {
+function detectCmsAndPlugins(html: string, headers: Headers): Partial<DetectedTech> {
   const lower = html.toLowerCase();
   const has = (str: string) => lower.includes(str.toLowerCase());
   const frameworks: string[] = [];
   let cms: string | null = null;
 
-  // CMS
-  if (has("wp-content") || has("wp-includes") || has("wp-json") || has('generator" content="wordpress') || has("/wp-")) {
+  if (has("wp-content") || has("wp-includes") || has("wp-json") || has('generator" content="wordpress') || has("/wp-admin")) {
     cms = "WordPress";
-  } else if (has("shopify") || has("myshopify") || has("cdn.shopify") || has("Shopify.theme")) {
+  } else if (has("shopify") || has("myshopify") || has("cdn.shopify")) {
     cms = "Shopify";
   } else if (has("webflow") || has("data-wf-domain") || has("w-nav")) {
     cms = "Webflow";
-  } else if (has("squarespace") || has("static.squarespace") || has("squarespace-cdn")) {
+  } else if (has("squarespace") || has("static.squarespace")) {
     cms = "Squarespace";
   } else if (has("wix") || has("wix-image") || has("static.wixstatic")) {
     cms = "Wix";
   } else if (has("drupal") || has("sites/default")) {
     cms = "Drupal";
-  } else if (has("joomla") || has("/media/jui") || has("/templates/")) {
+  } else if (has("joomla") || has("/media/jui")) {
     cms = "Joomla";
   } else if (has("magento") || has("mage-") || has("amasty")) {
     cms = "Magento";
@@ -83,7 +169,6 @@ function detectCmsAndPlugins(html: string, headers: Headers): Partial<DetectedTe
     cms = "Astro";
   }
 
-  // Frameworks
   if (has("react") || has("data-reactroot") || has("__react")) frameworks.push("React");
   if (has("next.js") || has("__next") || has("/_next/static")) frameworks.push("Next.js");
   if (has("vue.js") || has("__vue") || has("data-v-")) frameworks.push("Vue");
@@ -91,24 +176,39 @@ function detectCmsAndPlugins(html: string, headers: Headers): Partial<DetectedTe
   if (has("angular") || has("ng-app") || has("ng-version")) frameworks.push("Angular");
   if (has("svelte") || has("svelte-")) frameworks.push("Svelte");
   if (has("remix") || has("__remix")) frameworks.push("Remix");
-  if (has("jquery") || has("jquery.js") || has("jquery.min.js")) frameworks.push("jQuery");
+  if (has("jquery") || has("jquery.js")) frameworks.push("jQuery");
 
-  // WordPress plugins
+  const isWp = cms === "WordPress";
+  const plugins = isWp ? extractPlugins(html) : [];
+  const themes = isWp ? extractThemes(html) : [];
+  const wpVersion = isWp ? detectWordPressVersion(html) : null;
+  const phpVersion = detectPhpVersion(headers);
+  const serverSoftware = detectServerSoftware(headers);
+  const theme = themes.length > 0 ? themes[0] : null;
+
   const detected: Partial<DetectedTech> = {
-    isWordPress: cms === "WordPress",
-    hasWooCommerce: has("woocommerce") || has("wc-") || has("wc_cart_fragments") || has("wc_add_to_cart"),
-    hasElementor: has("elementor") || has("elementor-"),
-    hasMemberPress: has("memberpress") || has("mepr-") || has("mepr_"),
-    hasLearnDash: has("learndash") || has("ld-") || has("learndash-wrapper"),
-    hasBuddyBoss: has("buddyboss") || has("buddypress") || has("bp-"),
-    hasContactForm7: has("contact-form-7") || has("wpcf7") || has("wpcf7_"),
-    hasGravityForms: has("gravityforms") || has("gform") || has("gforms_"),
-    hasYoast: has("yoast") || has("yoast-seo"),
-    hasRankMath: has("rank-math") || has("rankmath") || has("rank-math-seo"),
-    hasWPRocket: has("wp-rocket"),
-    hasW3TotalCache: has("w3-total-cache"),
-    hasLiteSpeedCache: has("litespeed-cache") || has("litespeed"),
+    cms,
+    cmsVersion: wpVersion,
+    phpVersion,
+    theme,
+    themeVersion: null,
+    isWordPress: isWp,
+    hasWooCommerce: plugins.some((p) => p.slug === "woocommerce" || p.slug === "woo-commerce"),
+    hasElementor: plugins.some((p) => p.slug === "elementor" || p.slug === "elementor-pro"),
+    hasMemberPress: plugins.some((p) => p.slug === "memberpress"),
+    hasLearnDash: plugins.some((p) => p.slug === "learndash" || p.slug === "sfwd-lms"),
+    hasBuddyBoss: plugins.some((p) => p.slug === "buddyboss" || p.slug === "buddypress"),
+    hasContactForm7: plugins.some((p) => p.slug === "contact-form-7" || p.slug === "wpcf7"),
+    hasGravityForms: plugins.some((p) => p.slug === "gravityforms" || p.slug === "gravity-forms"),
+    hasYoast: plugins.some((p) => p.slug === "wordpress-seo" || p.slug === "yoast-seo"),
+    hasRankMath: plugins.some((p) => p.slug === "rank-math"),
+    hasWPRocket: plugins.some((p) => p.slug === "wp-rocket"),
+    hasW3TotalCache: plugins.some((p) => p.slug === "w3-total-cache"),
+    hasLiteSpeedCache: plugins.some((p) => p.slug === "litespeed-cache"),
     hasCloudflare: has("cloudflare") || has("__cf") || has("cf-ray") || has("cf-browser-verification"),
+    plugins,
+    frameworks,
+    serverSoftware,
   };
 
   const cfHeader = headers.get("cf-ray") || headers.get("server") || "";
@@ -116,30 +216,25 @@ function detectCmsAndPlugins(html: string, headers: Headers): Partial<DetectedTe
     detected.hasCloudflare = true;
   }
 
-  let heavyCount = 0;
-  HEAVY_PLUGINS.forEach((p) => { if (has(p)) heavyCount++; });
-  detected.heavyPluginsCount = heavyCount;
+  const heavyCats = ["ecommerce", "page-builder", "membership", "lms", "forms"];
+  detected.heavyPluginsCount = plugins.filter((p) => heavyCats.includes(p.category)).length;
 
-  let cachePlugin: string | null = null;
-  for (const cp of CACHE_PLUGINS) {
-    if (has(cp)) { cachePlugin = cp; break; }
-  }
-  detected.cachePlugin = cachePlugin;
+  const cacheSlugs = ["wp-rocket", "w3-total-cache", "litespeed-cache", "wp-super-cache", "wp-fastest-cache", "cache-enabler", "swift-performance"];
+  const cachePlugin = plugins.find((p) => cacheSlugs.includes(p.slug));
+  detected.cachePlugin = cachePlugin ? cachePlugin.name : null;
 
-  return { ...detected, cms, frameworks };
+  return detected;
 }
 
 async function fetchSitemap(domain: string, proxyUsed: string | null): Promise<{ count: number; lastmods: string[] } | null> {
   const base = domain.startsWith("http") ? domain : `https://${domain}`;
   const paths = ["/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml", "/sitemap-index.xml"];
-
   for (const p of paths) {
     try {
       const url = new URL(p, base).toString();
       let text: string;
-
       if (proxyUsed) {
-        const proxyRes = await fetch(`${proxyUsed}${proxyUsed.includes("allorigins") ? "?url=" : "?url="}${encodeURIComponent(url)}`, { cache: "no-store" });
+        const proxyRes = await fetch(`${proxyUsed}?url=${encodeURIComponent(url)}`, { cache: "no-store" });
         if (!proxyRes.ok) continue;
         text = await proxyRes.text();
       } else {
@@ -147,7 +242,6 @@ async function fetchSitemap(domain: string, proxyUsed: string | null): Promise<{
         if (!direct) continue;
         text = direct.text;
       }
-
       const urlMatches = text.match(/<url>/g);
       const count = urlMatches ? urlMatches.length : 0;
       const lastmods = [...text.matchAll(/<lastmod>([^<]+)<\/lastmod>/g)].map((m) => m[1]);
@@ -167,13 +261,10 @@ async function fetchPageSpeed(domain: string): Promise<{ ttfb: number | null; lc
     if (!res.ok) return { ttfb: null, lcp: null, cls: null };
     const data = await res.json();
     const metrics = data?.lighthouseResult?.audits;
-    const ttfbRaw = metrics?.["server-response-time"]?.numericValue ?? null;
-    const lcpRaw = metrics?.["largest-contentful-paint"]?.numericValue ?? null;
-    const clsRaw = metrics?.["cumulative-layout-shift"]?.numericValue ?? null;
     return {
-      ttfb: ttfbRaw ? Math.round(ttfbRaw) : null,
-      lcp: lcpRaw ? Math.round(lcpRaw) : null,
-      cls: clsRaw ? Math.round(clsRaw * 100) / 100 : null,
+      ttfb: metrics?.["server-response-time"]?.numericValue ? Math.round(metrics["server-response-time"].numericValue) : null,
+      lcp: metrics?.["largest-contentful-paint"]?.numericValue ? Math.round(metrics["largest-contentful-paint"].numericValue) : null,
+      cls: metrics?.["cumulative-layout-shift"]?.numericValue ? Math.round(metrics["cumulative-layout-shift"].numericValue * 100) / 100 : null,
     };
   } catch {
     return { ttfb: null, lcp: null, cls: null };
@@ -203,6 +294,10 @@ export async function analyzeSite(domain: string): Promise<AnalysisResult> {
 
   const base: DetectedTech = {
     cms: null,
+    cmsVersion: null,
+    phpVersion: null,
+    theme: null,
+    themeVersion: null,
     isWordPress: false,
     hasWooCommerce: false,
     hasElementor: false,
@@ -224,6 +319,8 @@ export async function analyzeSite(domain: string): Promise<AnalysisResult> {
     lcp: null,
     cls: null,
     frameworks: [],
+    plugins: [],
+    serverSoftware: null,
   };
 
   const status: ScanStatus = {
@@ -232,25 +329,18 @@ export async function analyzeSite(domain: string): Promise<AnalysisResult> {
     pageSpeedFetched: false,
     dnsFetched: false,
     proxyUsed: null,
+    pageSpeedRateLimited: false,
   };
 
-  // ── Try Cloudflare Worker first (if configured) ──
   const apiKeys = getApiKeys();
   if (apiKeys.workerUrl) {
     const workerResult = await analyzeViaWorker(apiKeys.workerUrl, cleanDomain);
-    if (workerResult) {
-      return workerResult;
-    }
-    // Worker failed — fall through to client-side detection
+    if (workerResult) return workerResult;
   }
 
-  // ── Client-side detection ──
-
-  // DNS (always works)
   const dns = await analyzeDns(cleanDomain);
   status.dnsFetched = dns.nameservers.length > 0 || dns.aRecords.length > 0;
 
-  // Try homepage fetch
   let html: string | null = null;
   let headers = new Headers();
 
@@ -274,19 +364,16 @@ export async function analyzeSite(domain: string): Promise<AnalysisResult> {
     Object.assign(base, detected);
   }
 
-  // Use DNS CDN info to supplement Cloudflare detection
   if (dns.cdnProvider === "Cloudflare" || dns.cdnProvider === "Akamai") {
     base.hasCloudflare = true;
   }
 
-  // Try sitemap
   const sitemap = await fetchSitemap(cleanDomain, status.proxyUsed);
   if (sitemap) {
     base.estimatedPages = sitemap.count;
     status.sitemapFetched = true;
   }
 
-  // PageSpeed Insights
   const psi = await fetchPageSpeed(cleanDomain);
   base.ttfb = psi.ttfb;
   base.lcp = psi.lcp;
