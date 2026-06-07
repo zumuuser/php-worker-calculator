@@ -23,11 +23,29 @@ export interface DetectedTech {
   frameworks: string[];
 }
 
+export interface DnsInfo {
+  nameservers: string[];
+  aRecords: string[];
+  cnameRecords: string[];
+  mxRecords: string[];
+  txtRecords: string[];
+  hostingProvider: string | null;
+  cdnProvider: string | null;
+  emailProvider: string | null;
+}
+
 export interface ScanStatus {
   homepageFetched: boolean;
   sitemapFetched: boolean;
   pageSpeedFetched: boolean;
+  dnsFetched: boolean;
   proxyUsed: string | null;
+}
+
+export interface ApiKeys {
+  whatcms?: string;
+  urlscan?: string;
+  shodan?: string;
 }
 
 export interface CalculatorInputs {

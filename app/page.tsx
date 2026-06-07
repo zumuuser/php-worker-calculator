@@ -1,18 +1,19 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
-import { CalculatorInputs, DetectedTech, CalculationResult, SavedReport, ScanStatus } from "@/types";
+import { useState, useCallback, useRef } from "react";
+import { CalculatorInputs, DetectedTech, CalculationResult, SavedReport, ScanStatus, DnsInfo } from "@/types";
 import { calculateWorkers } from "@/lib/calculator";
 import { saveReport } from "@/lib/storage";
 import { analyzeSite, AnalysisResult } from "@/lib/scraper";
 import ThemeToggle from "@/components/theme-toggle";
+import ApiKeySettings from "@/components/api-key-settings";
 import UrlInput from "@/components/url-input";
 import AutoDetectPanel from "@/components/auto-detect-panel";
 import InputForm from "@/components/input-form";
 import SimpleResult from "@/components/simple-result";
 import DetailedReport from "@/components/detailed-report";
 import HistoryDrawer from "@/components/history-drawer";
-import { Cpu, Code2, History, ArrowRight } from "lucide-react";
+import { Cpu, Code2, History, ArrowRight, Settings } from "lucide-react";
 
 const defaultDetected: DetectedTech = {
   cms: null,
@@ -43,7 +44,19 @@ const defaultStatus: ScanStatus = {
   homepageFetched: false,
   sitemapFetched: false,
   pageSpeedFetched: false,
+  dnsFetched: false,
   proxyUsed: null,
+};
+
+const defaultDns: DnsInfo = {
+  nameservers: [],
+  aRecords: [],
+  cnameRecords: [],
+  mxRecords: [],
+  txtRecords: [],
+  hostingProvider: null,
+  cdnProvider: null,
+  emailProvider: null,
 };
 
 function buildInputsFromDetection(detected: DetectedTech, domain: string): CalculatorInputs {
@@ -98,11 +111,13 @@ export default function Home() {
   const [domain, setDomain] = useState("");
   const [detected, setDetected] = useState<DetectedTech>(defaultDetected);
   const [scanStatus, setScanStatus] = useState<ScanStatus>(defaultStatus);
+  const [dnsInfo, setDnsInfo] = useState<DnsInfo>(defaultDns);
   const [inputs, setInputs] = useState<CalculatorInputs | null>(null);
   const [result, setResult] = useState<CalculationResult | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [showDetailed, setShowDetailed] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showApiSettings, setShowApiSettings] = useState(false);
   const resultRef = useRef<HTMLDivElement>(null);
 
   const runCalculation = useCallback((data: CalculatorInputs) => {
@@ -130,12 +145,14 @@ export default function Home() {
       const analysis: AnalysisResult = await analyzeSite(url);
       setDetected(analysis.tech);
       setScanStatus(analysis.status);
+      setDnsInfo(analysis.dns);
       const defaults = buildInputsFromDetection(analysis.tech, url);
       setInputs(defaults);
     } catch {
       const defaults = buildInputsFromDetection(defaultDetected, url);
       setDetected(defaultDetected);
       setScanStatus(defaultStatus);
+      setDnsInfo(defaultDns);
       setInputs(defaults);
     } finally {
       setAnalyzing(false);
@@ -178,6 +195,16 @@ export default function Home() {
               <History className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">History</span>
             </button>
+            <button
+              onClick={() => setShowApiSettings(true)}
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium tracking-wide uppercase transition-colors border"
+              style={{ color: "var(--color-muted)", borderColor: "var(--color-border)" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-muted)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)"; }}
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">APIs</span>
+            </button>
             <a
               href="https://github.com/zumuuser/php-worker-calculator"
               target="_blank"
@@ -218,15 +245,12 @@ export default function Home() {
       {/* Results area */}
       {hasAnalyzed && (
         <section ref={resultRef} className="max-w-6xl mx-auto px-6 pb-24 space-y-12">
-          {/* Detected Tech */}
-          <AutoDetectPanel detected={detected} domain={domain} status={scanStatus} />
+          <AutoDetectPanel detected={detected} domain={domain} status={scanStatus} dns={dnsInfo} />
 
-          {/* Input Form — always shown after analyze, user must fill traffic and calculate */}
           <div className="animate-fade-up">
             <InputForm detected={detected} inputs={inputs!} onSubmit={handleCalculate} />
           </div>
 
-          {/* Result */}
           {result && (
             <div className="animate-fade-up delay-100 space-y-8">
               <SimpleResult result={result} inputs={inputs!} />
@@ -263,8 +287,8 @@ export default function Home() {
         <section className="max-w-6xl mx-auto px-6 pb-24">
           <div className="border-t pt-12 grid grid-cols-1 md:grid-cols-3 gap-8" style={{ borderColor: "var(--color-border)" }}>
             {[
-              { num: "01", title: "Enter URL", desc: "Paste your domain. We scan for WordPress, plugins, caching, and performance metrics via CORS proxies." },
-              { num: "02", title: "Review detection", desc: "We show exactly what we found and what we couldn't. No hidden assumptions." },
+              { num: "01", title: "Enter URL", desc: "Paste your domain. We scan DNS, detect CMS, plugins, caching, and performance metrics." },
+              { num: "02", title: "Review detection", desc: "We show exactly what we found and what we couldn't. DNS always works; page fetching may be blocked by CORS." },
               { num: "03", title: "Enter traffic & calculate", desc: "Fill in your real traffic numbers. We calculate instantly in your browser." },
             ].map((step) => (
               <div key={step.num} className="space-y-3">
@@ -296,6 +320,7 @@ export default function Home() {
       </footer>
 
       <HistoryDrawer open={showHistory} onClose={() => setShowHistory(false)} onLoad={handleLoadReport} />
+      <ApiKeySettings open={showApiSettings} onClose={() => setShowApiSettings(false)} />
     </main>
   );
 }

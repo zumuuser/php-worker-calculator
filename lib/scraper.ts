@@ -1,7 +1,7 @@
 import { DetectedTech, ScanStatus } from "@/types";
+import { analyzeDns, DnsInfo } from "./dns";
 
 const CORS_PROXIES = [
-  (url: string) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
   (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
 ];
 
@@ -13,7 +13,7 @@ const HEAVY_PLUGINS = [
   "eventon", "the-events-calendar", "booking",
   "advanced-custom-fields", "acf-", "jetpack",
   "slider-revolution", "revslider", "wp-bakery",
-  "divi-builder", "fusion-builder", " Beaver",
+  "divi-builder", "fusion-builder", "beaver",
 ];
 
 const CACHE_PLUGINS = [
@@ -30,7 +30,7 @@ async function fetchViaProxy(url: string): Promise<{ text: string; headers: Head
       const res = await fetch(proxyUrl, { cache: "no-store" });
       if (!res.ok) continue;
       const text = await res.text();
-      if (text.length < 100) continue; // Probably an error page
+      if (text.length < 100) continue;
       return { text, headers: res.headers, proxy: proxyUrl.split("?")[0] };
     } catch {
       continue;
@@ -55,7 +55,7 @@ function detectCmsAndPlugins(html: string, headers: Headers): Partial<DetectedTe
   const frameworks: string[] = [];
   let cms: string | null = null;
 
-  // ── CMS Detection ──
+  // CMS
   if (has("wp-content") || has("wp-includes") || has("wp-json") || has('generator" content="wordpress') || has("/wp-")) {
     cms = "WordPress";
   } else if (has("shopify") || has("myshopify") || has("cdn.shopify") || has("Shopify.theme")) {
@@ -82,7 +82,7 @@ function detectCmsAndPlugins(html: string, headers: Headers): Partial<DetectedTe
     cms = "Astro";
   }
 
-  // ── Framework Detection ──
+  // Frameworks
   if (has("react") || has("data-reactroot") || has("__react")) frameworks.push("React");
   if (has("next.js") || has("__next") || has("/_next/static")) frameworks.push("Next.js");
   if (has("vue.js") || has("__vue") || has("data-v-")) frameworks.push("Vue");
@@ -92,7 +92,7 @@ function detectCmsAndPlugins(html: string, headers: Headers): Partial<DetectedTe
   if (has("remix") || has("__remix")) frameworks.push("Remix");
   if (has("jquery") || has("jquery.js") || has("jquery.min.js")) frameworks.push("jQuery");
 
-  // ── WordPress Plugin Detection ──
+  // WordPress plugins
   const detected: Partial<DetectedTech> = {
     isWordPress: cms === "WordPress",
     hasWooCommerce: has("woocommerce") || has("wc-") || has("wc_cart_fragments") || has("wc_add_to_cart"),
@@ -110,24 +110,18 @@ function detectCmsAndPlugins(html: string, headers: Headers): Partial<DetectedTe
     hasCloudflare: has("cloudflare") || has("__cf") || has("cf-ray") || has("cf-browser-verification"),
   };
 
-  // Check server headers for Cloudflare
   const cfHeader = headers.get("cf-ray") || headers.get("server") || "";
   if (cfHeader.toLowerCase().includes("cloudflare")) {
     detected.hasCloudflare = true;
   }
 
   let heavyCount = 0;
-  HEAVY_PLUGINS.forEach((p) => {
-    if (has(p)) heavyCount++;
-  });
+  HEAVY_PLUGINS.forEach((p) => { if (has(p)) heavyCount++; });
   detected.heavyPluginsCount = heavyCount;
 
   let cachePlugin: string | null = null;
   for (const cp of CACHE_PLUGINS) {
-    if (has(cp)) {
-      cachePlugin = cp;
-      break;
-    }
+    if (has(cp)) { cachePlugin = cp; break; }
   }
   detected.cachePlugin = cachePlugin;
 
@@ -188,6 +182,7 @@ async function fetchPageSpeed(domain: string): Promise<{ ttfb: number | null; lc
 export interface AnalysisResult {
   tech: DetectedTech;
   status: ScanStatus;
+  dns: DnsInfo;
 }
 
 export async function analyzeSite(domain: string): Promise<AnalysisResult> {
@@ -223,10 +218,15 @@ export async function analyzeSite(domain: string): Promise<AnalysisResult> {
     homepageFetched: false,
     sitemapFetched: false,
     pageSpeedFetched: false,
+    dnsFetched: false,
     proxyUsed: null,
   };
 
-  // Try homepage fetch (direct first, then proxy)
+  // DNS (always works)
+  const dns = await analyzeDns(cleanDomain);
+  status.dnsFetched = dns.nameservers.length > 0 || dns.aRecords.length > 0;
+
+  // Try homepage fetch
   let html: string | null = null;
   let headers = new Headers();
 
@@ -245,10 +245,14 @@ export async function analyzeSite(domain: string): Promise<AnalysisResult> {
     }
   }
 
-  // Detect from HTML
   if (html) {
     const detected = detectCmsAndPlugins(html, headers);
     Object.assign(base, detected);
+  }
+
+  // Use DNS CDN info to supplement Cloudflare detection
+  if (dns.cdnProvider === "Cloudflare" || dns.cdnProvider === "Akamai") {
+    base.hasCloudflare = true;
   }
 
   // Try sitemap
@@ -258,12 +262,12 @@ export async function analyzeSite(domain: string): Promise<AnalysisResult> {
     status.sitemapFetched = true;
   }
 
-  // PageSpeed Insights (always try, works cross-origin)
+  // PageSpeed Insights
   const psi = await fetchPageSpeed(cleanDomain);
   base.ttfb = psi.ttfb;
   base.lcp = psi.lcp;
   base.cls = psi.cls;
   status.pageSpeedFetched = psi.ttfb !== null || psi.lcp !== null;
 
-  return { tech: base, status };
+  return { tech: base, status, dns };
 }
