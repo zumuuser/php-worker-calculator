@@ -6,6 +6,7 @@ const CORS_PROXIES = [
   (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
 ];
 
+// ── Known plugin mapping: slug → { name, category } ──
 const PLUGIN_MAP: Record<string, { name: string; category: DetectedPlugin["category"] }> = {
   woocommerce: { name: "WooCommerce", category: "ecommerce" },
   "woo-commerce": { name: "WooCommerce", category: "ecommerce" },
@@ -86,7 +87,165 @@ const PLUGIN_MAP: Record<string, { name: string; category: DetectedPlugin["categ
   "happy-elementor-addons": { name: "Happy Elementor Addons", category: "page-builder" },
 };
 
-function extractPlugins(html: string): DetectedPlugin[] {
+// ── Plugin HTML signatures: patterns that appear even when wp-content paths are hidden ──
+const PLUGIN_SIGNATURES: Array<{ patterns: string[]; slug: string; name: string; category: DetectedPlugin["category"] }> = [
+  { patterns: ["woocommerce", "wc-", "woocommerce_params", "wc_cart_fragments", "class=\"woocommerce"], slug: "woocommerce", name: "WooCommerce", category: "ecommerce" },
+  { patterns: ["elementor", "data-elementor-type", "elementor-widget", "elementor-kit"], slug: "elementor", name: "Elementor", category: "page-builder" },
+  { patterns: ["wpcf7", "class=\"wpcf7", "wpcf7-form"], slug: "contact-form-7", name: "Contact Form 7", category: "forms" },
+  { patterns: ["gravityform", "gform_wrapper", "gform_fields"], slug: "gravityforms", name: "Gravity Forms", category: "forms" },
+  { patterns: ["wpforms", "wpforms-form", "wpforms-container"], slug: "wpforms", name: "WPForms", category: "forms" },
+  { patterns: ["ninja-forms", "nf-form", "ninja-forms-cont"], slug: "ninja-forms", name: "Ninja Forms", category: "forms" },
+  { patterns: ["formidable", "frm_form_fields", "with_frm_style"], slug: "formidable", name: "Formidable Forms", category: "forms" },
+  { patterns: ["fluentform", "fluentform_wrapper", "ff-default"], slug: "fluentform", name: "Fluent Forms", category: "forms" },
+  { patterns: ["yoast-schema-graph", "yoast-seo", "yoast-schema"], slug: "wordpress-seo", name: "Yoast SEO", category: "seo" },
+  { patterns: ["rank-math", "rank-math-schema"], slug: "rank-math", name: "Rank Math", category: "seo" },
+  { patterns: ["wp-rocket", "rocket-lazyload", "wpr-placeholder", "rocket-minify"], slug: "wp-rocket", name: "WP Rocket", category: "cache" },
+  { patterns: ["litespeed-cache", "litespeed-icon", "lscwp"], slug: "litespeed-cache", name: "LiteSpeed Cache", category: "cache" },
+  { patterns: ["w3-total-cache", "w3tc-minify"], slug: "w3-total-cache", name: "W3 Total Cache", category: "cache" },
+  { patterns: ["wp-super-cache"], slug: "wp-super-cache", name: "WP Super Cache", category: "cache" },
+  { patterns: ["memberpress", "mepr-", "mepr-form"], slug: "memberpress", name: "MemberPress", category: "membership" },
+  { patterns: ["learndash", "ld_course_list", "learndash-wrapper"], slug: "learndash", name: "LearnDash", category: "lms" },
+  { patterns: ["lifterlms", "llms-"], slug: "lifterlms", name: "LifterLMS", category: "lms" },
+  { patterns: ["tutorlms", "tutor-course", "tutor-wrap"], slug: "tutorlms", name: "Tutor LMS", category: "lms" },
+  { patterns: ["buddyboss", "buddyboss-theme"], slug: "buddyboss", name: "BuddyBoss", category: "membership" },
+  { patterns: ["buddypress", "bp-"], slug: "buddypress", name: "BuddyPress", category: "membership" },
+  { patterns: ["bbpress", "bbp-"], slug: "bbpress", name: "bbPress", category: "membership" },
+  { patterns: ["revslider", "rev_slider", "tp-caption"], slug: "revslider", name: "Slider Revolution", category: "page-builder" },
+  { patterns: ["js_composer", "vc_row", "vc_column"], slug: "js_composer", name: "WPBakery Page Builder", category: "page-builder" },
+  { patterns: ["advanced-custom-fields", "acf-"], slug: "advanced-custom-fields", name: "Advanced Custom Fields", category: "other" },
+  { patterns: ["wordfence", "wordfence-sync"], slug: "wordfence", name: "Wordfence", category: "security" },
+  { patterns: ["sucuri-scanner"], slug: "sucuri", name: "Sucuri", category: "security" },
+  { patterns: ["updraftplus", "updraft-"], slug: "updraftplus", name: "UpdraftPlus", category: "backup" },
+  { patterns: ["jetpack", "jp-"], slug: "jetpack", name: "Jetpack", category: "other" },
+  { patterns: ["mailchimp-for-wp", "mc4wp-"], slug: "mailchimp-for-wp", name: "Mailchimp for WP", category: "other" },
+  { patterns: ["wpml", "wpml-ls-"], slug: "wpml", name: "WPML", category: "other" },
+  { patterns: ["polylang", "pll-"], slug: "polylang", name: "Polylang", category: "other" },
+  { patterns: ["weglot"], slug: "weglot", name: "Weglot", category: "other" },
+  { patterns: ["tablepress", "tablepress-id"], slug: "tablepress", name: "TablePress", category: "other" },
+  { patterns: ["the-events-calendar", "tribe-events"], slug: "the-events-calendar", name: "The Events Calendar", category: "other" },
+  { patterns: ["easy-digital-downloads", "edd-"], slug: "easy-digital-downloads", name: "Easy Digital Downloads", category: "ecommerce" },
+  { patterns: ["restrict-content-pro", "rcp-"], slug: "restrict-content-pro", name: "Restrict Content Pro", category: "membership" },
+  { patterns: ["pmpro", "pmpro-"], slug: "pmpro", name: "Paid Memberships Pro", category: "membership" },
+  { patterns: ["redirection"], slug: "redirection", name: "Redirection", category: "seo" },
+  { patterns: ["duplicate-post"], slug: "duplicate-post", name: "Duplicate Post", category: "other" },
+  { patterns: ["wp-optimize"], slug: "wp-optimize", name: "WP-Optimize", category: "cache" },
+  { patterns: ["google-analytics-for-wordpress", "monsterinsights"], slug: "google-analytics-for-wordpress", name: "MonsterInsights", category: "analytics" },
+  { patterns: ["exactmetrics"], slug: "exactmetrics", name: "ExactMetrics", category: "analytics" },
+  { patterns: ["shortcodes-ultimate", "su-"], slug: "shortcodes-ultimate", name: "Shortcodes Ultimate", category: "other" },
+  { patterns: ["wp-migrate-db"], slug: "wp-migrate-db", name: "WP Migrate DB", category: "backup" },
+  { patterns: ["backupbuddy"], slug: "backupbuddy", name: "BackupBuddy", category: "backup" },
+  { patterns: ["all-in-one-wp-migration"], slug: "all-in-one-wp-migration", name: "All-in-One WP Migration", category: "backup" },
+  { patterns: ["divi-builder", "et_pb_"], slug: "divi-builder", name: "Divi Builder", category: "page-builder" },
+  { patterns: ["fusion-builder", "fusion-"], slug: "fusion-builder", name: "Fusion Builder", category: "page-builder" },
+  { patterns: ["beaver-builder", "fl-builder"], slug: "beaver-builder", name: "Beaver Builder", category: "page-builder" },
+  { patterns: ["woocommerce-subscriptions"], slug: "woocommerce-subscriptions", name: "WooCommerce Subscriptions", category: "ecommerce" },
+  { patterns: ["woocommerce-memberships"], slug: "woocommerce-memberships", name: "WooCommerce Memberships", category: "membership" },
+  { patterns: ["query-monitor"], slug: "query-monitor", name: "Query Monitor", category: "other" },
+  { patterns: ["wp-super-cache"], slug: "wp-super-cache", name: "WP Super Cache", category: "cache" },
+  { patterns: ["wp-fastest-cache"], slug: "wp-fastest-cache", name: "WP Fastest Cache", category: "cache" },
+  { patterns: ["cache-enabler"], slug: "cache-enabler", name: "Cache Enabler", category: "cache" },
+  { patterns: ["swift-performance"], slug: "swift-performance", name: "Swift Performance", category: "cache" },
+  { patterns: ["eventon"], slug: "eventon", name: "EventON", category: "other" },
+  { patterns: ["woocommerce-bookings"], slug: "woocommerce-bookings", name: "WooCommerce Bookings", category: "other" },
+  { patterns: ["product-add-ons"], slug: "product-add-ons", name: "WooCommerce Product Add-Ons", category: "ecommerce" },
+  { patterns: ["elementor-extras"], slug: "elementor-extras", name: "Elementor Extras", category: "page-builder" },
+  { patterns: ["essential-addons-for-elementor-lite"], slug: "essential-addons-for-elementor-lite", name: "Essential Addons for Elementor", category: "page-builder" },
+  { patterns: ["ultimate-elementor"], slug: "ultimate-elementor", name: "Ultimate Elementor", category: "page-builder" },
+  { patterns: ["powerpack-elements"], slug: "powerpack-elements", name: "PowerPack Elements", category: "page-builder" },
+  { patterns: ["happy-elementor-addons"], slug: "happy-elementor-addons", name: "Happy Elementor Addons", category: "page-builder" },
+];
+
+// ── Theme detection from HTML classes and CSS URLs ──
+function detectTheme(html: string): string | null {
+  // Method 1: wp-content/themes/ path
+  const themeMatches = [...html.matchAll(/wp-content\/themes\/([^\/"'?\s]+)/gi)];
+  const themes = [...new Set(themeMatches.map((m) => m[1]))];
+  if (themes.length > 0) return themes[0];
+
+  // Method 2: body class like "theme-{name}"
+  const bodyMatch = html.match(/<body[^>]+class=["']([^"']*theme-([^\s"']+))[^"']*["']/i);
+  if (bodyMatch) return bodyMatch[2];
+
+  // Method 3: common theme classes
+  const lower = html.toLowerCase();
+  const knownThemes: [string, string][] = [
+    ["astra", "Astra"],
+    ["generatepress", "GeneratePress"],
+    ["oceanwp", "OceanWP"],
+    ["kadence-theme", "Kadence"],
+    ["blocksy", "Blocksy"],
+    ["neve", "Neve"],
+    ["divi", "Divi"],
+    ["avada", "Avada"],
+    ["enfold", "Enfold"],
+    ["betheme", "BeTheme"],
+    ["x-theme", "X Theme"],
+    ["salient", "Salient"],
+    ["the7", "The7"],
+    ["flatsome", "Flatsome"],
+    ["woodmart", "WoodMart"],
+    ["porto", "Porto"],
+    ["uncode", "Uncode"],
+    ["bridge", "Bridge"],
+    ["newspaper", "Newspaper"],
+    ["jnews", "JNews"],
+    ["soledad", "Soledad"],
+    ["genesis", "Genesis"],
+    ["hello-elementor", "Hello Elementor"],
+    ["storefront", "Storefront"],
+    ["twentytwentyfour", "Twenty Twenty-Four"],
+    ["twentytwentythree", "Twenty Twenty-Three"],
+    ["twentytwentytwo", "Twenty Twenty-Two"],
+    ["twentytwentyone", "Twenty Twenty-One"],
+    ["twentytwenty", "Twenty Twenty"],
+    ["twentynineteen", "Twenty Nineteen"],
+  ];
+  for (const [slug, name] of knownThemes) {
+    if (lower.includes(slug)) return name;
+  }
+
+  return null;
+}
+
+// ── WordPress version from multiple sources ──
+function detectWordPressVersion(html: string): string | null {
+  // Method 1: generator meta tag
+  const meta = html.match(/<meta[^>]+name=["']generator["'][^>]+content=["']WordPress\s+([0-9.]+)/i);
+  if (meta) return meta[1];
+
+  // Method 2: CSS/JS ver parameter
+  const verMatch = html.match(/[?&]ver=([0-9.]+)/);
+  if (verMatch) {
+    const v = verMatch[1];
+    if (v.startsWith("6.") || v.startsWith("5.") || v.startsWith("4.") || v.startsWith("3.")) return v;
+  }
+
+  // Method 3: any WordPress version mention
+  const other = html.match(/WordPress\s+([0-9.]+)/i);
+  if (other) return other[1];
+
+  return null;
+}
+
+// ── Detect plugins by HTML signatures ──
+function detectPluginsBySignatures(html: string): DetectedPlugin[] {
+  const lower = html.toLowerCase();
+  const found: DetectedPlugin[] = [];
+  const foundSlugs = new Set<string>();
+
+  for (const sig of PLUGIN_SIGNATURES) {
+    const matched = sig.patterns.some((p) => lower.includes(p.toLowerCase()));
+    if (matched && !foundSlugs.has(sig.slug)) {
+      foundSlugs.add(sig.slug);
+      found.push({ slug: sig.slug, name: sig.name, category: sig.category });
+    }
+  }
+
+  return found;
+}
+
+// ── Extract plugins from wp-content paths ──
+function extractPluginsFromPaths(html: string): DetectedPlugin[] {
   const matches = [...html.matchAll(/wp-content\/plugins\/([^\/"'?\s]+)/gi)];
   const slugs = [...new Set(matches.map((m) => m[1].toLowerCase()))];
   return slugs.map((slug) => {
@@ -99,19 +258,6 @@ function extractPlugins(html: string): DetectedPlugin[] {
   });
 }
 
-function extractThemes(html: string): string[] {
-  const matches = [...html.matchAll(/wp-content\/themes\/([^\/"'?\s]+)/gi)];
-  return [...new Set(matches.map((m) => m[1]))];
-}
-
-function detectWordPressVersion(html: string): string | null {
-  const meta = html.match(/<meta[^>]+name=["']generator["'][^>]+content=["']WordPress\s+([0-9.]+)/i);
-  if (meta) return meta[1];
-  const other = html.match(/WordPress\s+([0-9.]+)/i);
-  if (other) return other[1];
-  return null;
-}
-
 function detectPhpVersion(headers: Headers): string | null {
   const powered = headers.get("x-powered-by") || "";
   const match = powered.match(/PHP\/([0-9.]+)/i);
@@ -120,6 +266,73 @@ function detectPhpVersion(headers: Headers): string | null {
 
 function detectServerSoftware(headers: Headers): string | null {
   return headers.get("server") || null;
+}
+
+// ── Multi-vector WordPress detection ──
+function isWordPress(html: string, headers: Headers): boolean {
+  const lower = html.toLowerCase();
+  const h = (s: string) => lower.includes(s.toLowerCase());
+
+  // Primary vectors
+  if (h("wp-content")) return true;
+  if (h("wp-includes")) return true;
+  if (h("wp-json")) return true;
+  if (h('generator" content="wordpress')) return true;
+  if (h("/wp-admin")) return true;
+  if (h("xmlrpc.php")) return true;
+  if (h("wp-embed.min.js")) return true;
+  if (h("wp-emoji-release.min.js")) return true;
+  if (h("wp-block-library")) return true;
+
+  // Headers
+  const linkHeader = headers.get("link") || "";
+  if (linkHeader.toLowerCase().includes("wp-json")) return true;
+  if (headers.get("x-pingback")?.toLowerCase().includes("xmlrpc.php")) return true;
+
+  // Body classes
+  if (/<body[^>]+class=["'][^"']*home blog/.test(html)) return true;
+  if (/<body[^>]+class=["'][^"']*post-type/.test(html)) return true;
+  if (/<body[^>]+class=["'][^"']*page-template/.test(html)) return true;
+
+  // REST API script tag
+  if (h("rest_url")) return true;
+  if (h("rest_nonce")) return true;
+  if (h("wpApiSettings")) return true;
+
+  return false;
+}
+
+// ── Detect CMS with fallback to WordPress signatures ──
+function detectCms(html: string, headers: Headers): string | null {
+  const lower = html.toLowerCase();
+  const h = (s: string) => lower.includes(s.toLowerCase());
+
+  // WordPress — most robust detection first
+  if (isWordPress(html, headers)) return "WordPress";
+
+  // Others
+  if (h("shopify") || h("myshopify") || h("cdn.shopify") || h("shopify.theme")) return "Shopify";
+  if (h("webflow") || h("data-wf-domain") || h("w-nav")) return "Webflow";
+  if (h("squarespace") || h("static.squarespace") || h("squarespace-cdn")) return "Squarespace";
+  if (h("wix") || h("wix-image") || h("static.wixstatic")) return "Wix";
+  if (h("drupal") || h("sites/default")) return "Drupal";
+  if (h("joomla") || h("/media/jui") || h("/templates/")) return "Joomla";
+  if (h("magento") || h("mage-") || h("amasty")) return "Magento";
+  if (h("ghost") || h("@tryghost")) return "Ghost";
+  if (h("next.js") || h("__next") || h("/_next/static")) return "Next.js";
+  if (h("gatsby") || h("___gatsby")) return "Gatsby";
+  if (h("astro")) return "Astro";
+  if (h("nuxt") || h("__nuxt")) return "Nuxt";
+  if (h("sveltekit") || h("__svelte")) return "SvelteKit";
+  if (h("remix") || h("__remix")) return "Remix";
+
+  return null;
+}
+
+function isPhpCms(cms: string | null): boolean {
+  if (!cms) return false;
+  const phpCmsList = ["WordPress", "Magento", "Drupal", "Joomla", "Laravel", "CakePHP", "Symfony", "PrestaShop", "OpenCart", "Zen Cart", "OSCommerce"];
+  return phpCmsList.includes(cms);
 }
 
 function extractScripts(html: string): string[] {
@@ -277,7 +490,7 @@ function extractMetaDescription(html: string): string | null {
 }
 
 function extractInterestingHeaders(headers: Headers): Record<string, string> {
-  const interesting = ["server", "x-powered-by", "cf-ray", "x-cache", "x-cdn", "via", "x-request-id", "content-security-policy"];
+  const interesting = ["server", "x-powered-by", "cf-ray", "x-cache", "x-cdn", "via", "x-request-id", "content-security-policy", "link"];
   const result: Record<string, string> = {};
   for (const key of interesting) {
     const val = headers.get(key);
@@ -312,50 +525,36 @@ async function fetchDirect(url: string): Promise<{ text: string; headers: Header
   }
 }
 
-function isPhpCms(cms: string | null): boolean {
-  if (!cms) return false;
-  const phpCmsList = ["WordPress", "Magento", "Drupal", "Joomla", "Laravel", "CakePHP", "Symfony", "PrestaShop", "OpenCart", "Zen Cart", "OSCommerce"];
-  return phpCmsList.includes(cms);
-}
-
 function detectCmsAndPlugins(html: string, headers: Headers, statusCode: number): Partial<DetectedTech> {
   const lower = html.toLowerCase();
   const has = (str: string) => lower.includes(str.toLowerCase());
   const frameworks: string[] = [];
-  let cms: string | null = null;
 
-  if (has("wp-content") || has("wp-includes") || has("wp-json") || has('generator" content="wordpress') || has("/wp-admin")) {
-    cms = "WordPress";
-  } else if (has("shopify") || has("myshopify") || has("cdn.shopify") || has("shopify.theme")) {
-    cms = "Shopify";
-  } else if (has("webflow") || has("data-wf-domain") || has("w-nav")) {
-    cms = "Webflow";
-  } else if (has("squarespace") || has("static.squarespace") || has("squarespace-cdn")) {
-    cms = "Squarespace";
-  } else if (has("wix") || has("wix-image") || has("static.wixstatic")) {
-    cms = "Wix";
-  } else if (has("drupal") || has("sites/default")) {
-    cms = "Drupal";
-  } else if (has("joomla") || has("/media/jui") || has("/templates/")) {
-    cms = "Joomla";
-  } else if (has("magento") || has("mage-") || has("amasty")) {
-    cms = "Magento";
-  } else if (has("ghost") || has("@tryghost")) {
-    cms = "Ghost";
-  } else if (has("next.js") || has("__next") || has("/_next/static")) {
-    cms = "Next.js";
-  } else if (has("gatsby") || has("___gatsby")) {
-    cms = "Gatsby";
-  } else if (has("astro")) {
-    cms = "Astro";
-  } else if (has("nuxt") || has("__nuxt")) {
-    cms = "Nuxt";
-  } else if (has("sveltekit") || has("__svelte")) {
-    cms = "SvelteKit";
-  } else if (has("remix") || has("__remix")) {
-    cms = "Remix";
+  const cms = detectCms(html, headers);
+  const isWp = cms === "WordPress";
+
+  // Plugins: combine path-based + signature-based detection
+  const pluginsFromPaths = isWp ? extractPluginsFromPaths(html) : [];
+  const pluginsFromSignatures = isWp ? detectPluginsBySignatures(html) : [];
+
+  // Merge: signature plugins take precedence, then path-based
+  const pluginMap = new Map<string, DetectedPlugin>();
+  for (const p of pluginsFromSignatures) pluginMap.set(p.slug, p);
+  for (const p of pluginsFromPaths) {
+    if (!pluginMap.has(p.slug)) pluginMap.set(p.slug, p);
   }
+  const plugins = Array.from(pluginMap.values());
 
+  const wpVersion = isWp ? detectWordPressVersion(html) : null;
+  const phpVersion = detectPhpVersion(headers);
+  const serverSoftware = detectServerSoftware(headers);
+  const theme = isWp ? detectTheme(html) : null;
+  const scripts = extractScripts(html);
+  const analytics = extractAnalytics(html);
+  const metaDescription = extractMetaDescription(html);
+  const responseHeaders = extractInterestingHeaders(headers);
+
+  // Frameworks
   if (has("react") || has("data-reactroot") || has("__react") || has("reactroot")) frameworks.push("React");
   if (has("next.js") || has("__next") || has("/_next/static")) frameworks.push("Next.js");
   if (has("vue.js") || has("__vue") || has("data-v-")) frameworks.push("Vue");
@@ -364,7 +563,7 @@ function detectCmsAndPlugins(html: string, headers: Headers, statusCode: number)
   if (has("svelte") || has("svelte-")) frameworks.push("Svelte");
   if (has("remix") || has("__remix")) frameworks.push("Remix");
   if (has("jquery") || has("jquery.js")) frameworks.push("jQuery");
-  if (has("tailwindcss") || has("tailwind") || html.includes("tailwind")) frameworks.push("Tailwind CSS");
+  if (has("tailwindcss") || has("tailwind")) frameworks.push("Tailwind CSS");
   if (has("bootstrap") || has("bootstrap.min.css")) frameworks.push("Bootstrap");
   if (has("styled-components") || has("data-styled")) frameworks.push("Styled Components");
   if (has("emotion") || has("data-emotion")) frameworks.push("Emotion");
@@ -378,18 +577,6 @@ function detectCmsAndPlugins(html: string, headers: Headers, statusCode: number)
   if (has("d3.js") || has("d3.min.js")) frameworks.push("D3.js");
   if (has("chart.js")) frameworks.push("Chart.js");
   if (has("swiper")) frameworks.push("Swiper");
-
-  const isWp = cms === "WordPress";
-  const plugins = isWp ? extractPlugins(html) : [];
-  const themes = isWp ? extractThemes(html) : [];
-  const wpVersion = isWp ? detectWordPressVersion(html) : null;
-  const phpVersion = detectPhpVersion(headers);
-  const serverSoftware = detectServerSoftware(headers);
-  const theme = themes.length > 0 ? themes[0] : null;
-  const scripts = extractScripts(html);
-  const analytics = extractAnalytics(html);
-  const metaDescription = extractMetaDescription(html);
-  const responseHeaders = extractInterestingHeaders(headers);
 
   const detected: Partial<DetectedTech> = {
     cms,
