@@ -43,6 +43,7 @@ export interface ScanStatus {
 }
 
 export interface ApiKeys {
+  workerUrl?: string;
   whatcms?: string;
   urlscan?: string;
   shodan?: string;

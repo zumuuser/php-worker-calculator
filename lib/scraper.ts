@@ -1,5 +1,6 @@
 import { DetectedTech, ScanStatus } from "@/types";
-import { analyzeDns, DnsInfo } from "./dns";
+import { DnsInfo, analyzeDns } from "./dns";
+import { getApiKeys } from "./api-keys";
 
 const CORS_PROXIES = [
   (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -179,6 +180,17 @@ async function fetchPageSpeed(domain: string): Promise<{ ttfb: number | null; lc
   }
 }
 
+async function analyzeViaWorker(workerUrl: string, domain: string): Promise<AnalysisResult | null> {
+  try {
+    const url = `${workerUrl.replace(/\/$/, "")}/analyze?url=${encodeURIComponent(domain)}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    return await res.json() as AnalysisResult;
+  } catch {
+    return null;
+  }
+}
+
 export interface AnalysisResult {
   tech: DetectedTech;
   status: ScanStatus;
@@ -221,6 +233,18 @@ export async function analyzeSite(domain: string): Promise<AnalysisResult> {
     dnsFetched: false,
     proxyUsed: null,
   };
+
+  // ── Try Cloudflare Worker first (if configured) ──
+  const apiKeys = getApiKeys();
+  if (apiKeys.workerUrl) {
+    const workerResult = await analyzeViaWorker(apiKeys.workerUrl, cleanDomain);
+    if (workerResult) {
+      return workerResult;
+    }
+    // Worker failed — fall through to client-side detection
+  }
+
+  // ── Client-side detection ──
 
   // DNS (always works)
   const dns = await analyzeDns(cleanDomain);

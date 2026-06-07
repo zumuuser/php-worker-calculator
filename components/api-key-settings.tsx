@@ -3,33 +3,12 @@
 import { useState, useEffect } from "react";
 import { ApiKeys } from "@/types";
 import { getApiKeys, setApiKeys } from "@/lib/api-keys";
-import { Key, ExternalLink, X } from "lucide-react";
+import { Key, ExternalLink, X, Zap, Globe, Shield } from "lucide-react";
 
 interface Props {
   open: boolean;
   onClose: () => void;
 }
-
-const API_SERVICES = [
-  {
-    key: "whatcms" as const,
-    name: "WhatCMS",
-    description: "CMS & technology detection. Free tier: 1,000 requests/month.",
-    url: "https://whatcms.org/API",
-  },
-  {
-    key: "urlscan" as const,
-    name: "urlscan.io",
-    description: "Full page scan with headers, resources & tech stack. Free tier: 10K lookups/day.",
-    url: "https://urlscan.io/about-api/",
-  },
-  {
-    key: "shodan" as const,
-    name: "Shodan",
-    description: "Infrastructure & server fingerprinting. Free tier: 100 credits.",
-    url: "https://account.shodan.io/register",
-  },
-];
 
 export default function ApiKeySettings({ open, onClose }: Props) {
   const [keys, setKeysState] = useState<ApiKeys>({});
@@ -66,7 +45,7 @@ export default function ApiKeySettings({ open, onClose }: Props) {
         >
           <h2 className="font-display text-lg font-medium tracking-tight flex items-center gap-2">
             <Key className="w-5 h-5" strokeWidth={1.5} />
-            API Keys
+            API Settings
           </h2>
           <button
             onClick={onClose}
@@ -79,49 +58,88 @@ export default function ApiKeySettings({ open, onClose }: Props) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <p className="text-sm leading-relaxed" style={{ color: "var(--color-fg-secondary)" }}>
-            Enter API keys to enable premium detection sources. Keys are stored in your browser&apos;s localStorage and never sent to our servers.
-          </p>
+        <div className="flex-1 overflow-y-auto p-6 space-y-8">
+          {/* Worker URL — primary recommendation */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4" style={{ color: "var(--color-fg)" }} />
+              <h3 className="text-sm font-medium">Detection Proxy URL</h3>
+            </div>
+            <p className="text-sm leading-relaxed" style={{ color: "var(--color-fg-secondary)" }}>
+              Deploy our free Cloudflare Worker for 100% reliable detection.
+              Without it, most sites block our browser scans due to CORS.
+            </p>
+            <a
+              href="https://github.com/zumuuser/php-worker-calculator/blob/main/API_WORKER.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs font-medium transition-colors"
+              style={{ color: "var(--color-fg)" }}
+            >
+              Deployment guide (60 seconds)
+              <ExternalLink className="w-3 h-3" />
+            </a>
+            <input
+              type="url"
+              value={keys.workerUrl || ""}
+              onChange={(e) => updateKey("workerUrl", e.target.value)}
+              placeholder="https://your-worker.your-name.workers.dev"
+              className="w-full"
+            />
+          </div>
 
-          {API_SERVICES.map((svc) => (
-            <div key={svc.key} className="space-y-2">
+          <div className="border-t" style={{ borderColor: "var(--color-border)" }} />
+
+          {/* Optional APIs */}
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium" style={{ color: "var(--color-fg-secondary)" }}>
+              Optional third-party APIs
+            </h3>
+            <p className="text-xs" style={{ color: "var(--color-fg-muted)" }}>
+              These are not required if you use the Detection Proxy above.
+              Most do not support browser CORS and need their own server-side proxy.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">{svc.name}</label>
-                <a
-                  href={svc.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs transition-colors"
-                  style={{ color: "var(--color-fg-muted)" }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg-muted)"; }}
-                >
-                  Get key
-                  <ExternalLink className="w-3 h-3" />
+                <label className="text-sm font-medium">WhatCMS</label>
+                <a href="https://whatcms.org/API" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs transition-colors" style={{ color: "var(--color-fg-muted)" }} onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; }} onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg-muted)"; }}>
+                  Get key <ExternalLink className="w-3 h-3" />
                 </a>
               </div>
-              <p className="text-xs" style={{ color: "var(--color-fg-muted)" }}>
-                {svc.description}
-              </p>
-              <input
-                type="password"
-                value={keys[svc.key] || ""}
-                onChange={(e) => updateKey(svc.key, e.target.value)}
-                placeholder={`Paste your ${svc.name} API key`}
-                className="w-full"
-              />
+              <p className="text-xs" style={{ color: "var(--color-fg-muted)" }}>CMS detection. Free: 1,000 req/month.</p>
+              <input type="password" value={keys.whatcms || ""} onChange={(e) => updateKey("whatcms", e.target.value)} placeholder="WhatCMS API key" className="w-full" />
             </div>
-          ))}
 
-          <div
-            className="border-t pt-6 text-xs space-y-2"
-            style={{ borderColor: "var(--color-border)" }}
-          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">urlscan.io</label>
+                <a href="https://urlscan.io/about-api/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs transition-colors" style={{ color: "var(--color-fg-muted)" }} onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; }} onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg-muted)"; }}>
+                  Get key <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+              <p className="text-xs" style={{ color: "var(--color-fg-muted)" }}>Full page scan with tech stack. Free: 10K lookups/day.</p>
+              <input type="password" value={keys.urlscan || ""} onChange={(e) => updateKey("urlscan", e.target.value)} placeholder="urlscan.io API key" className="w-full" />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Shodan</label>
+                <a href="https://account.shodan.io/register" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs transition-colors" style={{ color: "var(--color-fg-muted)" }} onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; }} onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg-muted)"; }}>
+                  Get key <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+              <p className="text-xs" style={{ color: "var(--color-fg-muted)" }}>Infrastructure fingerprinting. Free: 100 credits.</p>
+              <input type="password" value={keys.shodan || ""} onChange={(e) => updateKey("shodan", e.target.value)} placeholder="Shodan API key" className="w-full" />
+            </div>
+          </div>
+
+          <div className="border-t pt-4 text-xs" style={{ borderColor: "var(--color-border)" }}>
             <p style={{ color: "var(--color-fg-muted)" }}>
-              <strong>Note:</strong> Most tech detection APIs do not support browser CORS. 
-              For reliable detection, you may need to deploy a small proxy (Cloudflare Worker, Netlify Function, etc.) 
-              that calls these APIs server-side.
+              <strong>Privacy note:</strong> All keys are stored in your browser&apos;s localStorage.
+              They are never sent to our servers. The Detection Proxy runs on your own Cloudflare account.
             </p>
           </div>
         </div>
