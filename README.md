@@ -16,6 +16,9 @@ A free, open-source tool that calculates exactly how many **PHP workers** your w
 
 ## Live Demo
 
+**Live URL:** [https://zumuuser.github.io/php-worker-calculator/](https://zumuuser.github.io/php-worker-calculator/)
+
+
 Deploy to Vercel or Netlify in one click:
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/YOUR_USERNAME/php-worker-calculator)
