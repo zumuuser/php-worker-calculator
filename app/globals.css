@@ -1,35 +1,184 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: #ffffff;
-  --color-foreground: #0f172a;
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-background: #0f172a;
-    --color-foreground: #f8fafc;
-  }
+/* ── Design Tokens ── */
+:root {
+  --color-bg: #fafafa;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f5f5f5;
+  --color-fg: #0a0a0a;
+  --color-fg-secondary: #737373;
+  --color-fg-muted: #a3a3a3;
+  --color-border: rgba(0, 0, 0, 0.06);
+  --color-border-strong: rgba(0, 0, 0, 0.12);
+  --color-accent: #0a0a0a;
+  --color-accent-inverse: #fafafa;
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+  --color-warn: #ca8a04;
+}
+
+[data-theme="dark"] {
+  --color-bg: #0a0a0a;
+  --color-surface: #111111;
+  --color-surface-raised: #1a1a1a;
+  --color-fg: #fafafa;
+  --color-fg-secondary: #a3a3a3;
+  --color-fg-muted: #525252;
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-strong: rgba(255, 255, 255, 0.12);
+  --color-accent: #fafafa;
+  --color-accent-inverse: #0a0a0a;
+  --color-danger: #ef4444;
+  --color-success: #22c55e;
+  --color-warn: #eab308;
+}
+
+/* ── Base ── */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  background: var(--color-background);
-  color: var(--color-foreground);
-  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  letter-spacing: -0.01em;
 }
 
-/* Smooth scroll */
-html {
-  scroll-behavior: smooth;
+::selection {
+  background: var(--color-fg);
+  color: var(--color-bg);
 }
 
-/* Custom animations */
-@keyframes slide-in-from-bottom {
+/* ── Typography utilities ── */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+/* ── Inputs ── */
+input,
+select,
+textarea {
+  background: transparent;
+  color: var(--color-fg);
+  border: 1px solid var(--color-border-strong);
+  padding: 0.75rem 1rem;
+  font-size: 0.9375rem;
+  transition: border-color 0.15s ease;
+  outline: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--color-fg);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-fg-muted);
+}
+
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2.5rem;
+}
+
+/* ── Range inputs ── */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: var(--color-border-strong);
+  border: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--color-fg);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: var(--color-fg);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-fg-muted);
+}
+
+/* ── Recharts overrides ── */
+.recharts-tooltip-wrapper {
+  outline: none !important;
+}
+
+.recharts-default-tooltip {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-border-strong) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: var(--color-fg) !important;
+}
+
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: var(--color-border) !important;
+}
+
+/* ── Animations ── */
+@keyframes fade-up {
   from {
     opacity: 0;
-    transform: translateY(24px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;
@@ -46,36 +195,12 @@ html {
   }
 }
 
-@keyframes scale-in {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-.animate-in {
-  animation: slide-in-from-bottom 0.5s ease-out both;
+.animate-fade-up {
+  animation: fade-up 0.5s ease-out both;
 }
 
 .animate-fade-in {
   animation: fade-in 0.4s ease-out both;
-}
-
-.animate-scale-in {
-  animation: scale-in 0.3s ease-out both;
-}
-
-/* Animation delays */
-.duration-500 {
-  animation-duration: 500ms;
-}
-
-.duration-700 {
-  animation-duration: 700ms;
 }
 
 .delay-100 {
@@ -86,34 +211,6 @@ html {
   animation-delay: 200ms;
 }
 
-/* Recharts tooltip fix for dark mode */
-.recharts-tooltip-wrapper {
-  outline: none !important;
-}
-
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 9999px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-.dark ::-webkit-scrollbar-thumb {
-  background: #475569;
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+.delay-300 {
+  animation-delay: 300ms;
 }

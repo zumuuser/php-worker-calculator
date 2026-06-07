@@ -1,8 +1,8 @@
 "use client";
 
 import { CalculationResult, CalculatorInputs } from "@/types";
-import { Users, TrendingUp, Zap, ArrowUpRight, CheckCircle2, Layers } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
+import { Users, TrendingUp, ArrowUpRight, AlertTriangle } from "lucide-react";
 
 interface Props {
   result: CalculationResult;
@@ -10,82 +10,126 @@ interface Props {
 }
 
 export default function SimpleResult({ result, inputs }: Props) {
+  const currentLimit = inputs.currentWorkerLimit;
+  const isUnderProvisioned = currentLimit && currentLimit < result.recommendedWorkers;
+
   return (
-    <div className="relative overflow-hidden rounded-3xl bg-slate-900 text-white shadow-2xl">
-      {/* Background effects */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-blue-600/30 via-transparent to-transparent" />
-      <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500/10 blur-[100px] rounded-full" />
-      <div className="absolute bottom-0 left-0 w-64 h-64 bg-violet-500/10 blur-[80px] rounded-full" />
-
-      <div className="relative p-8 md:p-12">
-        <div className="flex items-center gap-2 mb-8">
-          <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          </div>
-          <span className="text-sm font-semibold text-emerald-400 uppercase tracking-wider">Result</span>
-        </div>
-
-        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-10">
-          <div className="space-y-6">
-            <div>
-              <p className="text-slate-400 text-sm font-medium mb-2">Recommended PHP Workers</p>
-              <div className="flex items-baseline gap-4">
-                <span className="text-7xl md:text-8xl font-black tracking-tighter bg-gradient-to-r from-white via-blue-100 to-cyan-200 bg-clip-text text-transparent">
-                  {result.recommendedWorkers}
-                </span>
-                <span className="text-xl text-slate-400 font-medium">workers</span>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/10 backdrop-blur-sm px-4 py-2 text-sm font-medium">
-                <Layers className="w-4 h-4 text-blue-400" />
-                {result.tier} Tier
-              </div>
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/10 backdrop-blur-sm px-4 py-2 text-sm font-medium">
-                <Zap className="w-4 h-4 text-amber-400" />
-                {formatNumber(result.maxMonthlyPageviews)} pageviews/mo capacity
-              </div>
-            </div>
-
-            <p className="text-slate-400 text-base leading-relaxed max-w-lg">
-              For a <span className="text-white font-semibold capitalize">{inputs.siteType}</span> site
-              with <span className="text-white font-semibold">{formatNumber(inputs.monthlyPageviews)}</span> monthly pageviews,
-              {result.recommendedWorkers} workers handle your traffic comfortably with headroom for spikes.
+    <div
+      className="border"
+      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+    >
+      {/* Main number */}
+      <div className="p-8 md:p-12 border-b" style={{ borderColor: "var(--color-border)" }}>
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-8">
+          <div className="space-y-4">
+            <p className="text-xs font-medium tracking-widest uppercase" style={{ color: "var(--color-fg-muted)" }}>
+              Recommended PHP workers
             </p>
+            <div className="flex items-baseline gap-4">
+              <span className="font-display text-7xl md:text-9xl font-medium tracking-tighter">
+                {result.recommendedWorkers}
+              </span>
+              <span className="text-lg font-medium" style={{ color: "var(--color-fg-secondary)" }}>
+                workers
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-3 pt-2">
+              <span
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium tracking-wide uppercase"
+                style={{
+                  background: "var(--color-fg)",
+                  color: "var(--color-bg)",
+                }}
+              >
+                {result.tier}
+              </span>
+              <span
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium tracking-wide uppercase border"
+                style={{ borderColor: "var(--color-border-strong)" }}
+              >
+                {formatNumber(result.maxMonthlyPageviews)} pageviews/mo capacity
+              </span>
+            </div>
           </div>
 
-          <div className="flex flex-col gap-3 min-w-[240px]">
-            <MetricCard
-              icon={<Users className="w-4 h-4 text-blue-400" />}
-              label="Max Concurrent Users"
-              value={formatNumber(result.maxConcurrentUsers)}
-            />
-            <MetricCard
-              icon={<TrendingUp className="w-4 h-4 text-emerald-400" />}
-              label="Monthly Capacity"
-              value={formatNumber(result.maxMonthlyPageviews)}
-            />
-            <MetricCard
-              icon={<ArrowUpRight className="w-4 h-4 text-violet-400" />}
-              label="2× Traffic Needs"
-              value={`${result.projections.traffic2x} workers`}
-            />
+          <div className="grid grid-cols-2 lg:grid-cols-1 gap-4 lg:min-w-[200px]">
+            <MetricRow label="Max concurrent" value={formatNumber(result.maxConcurrentUsers)} icon={<Users className="w-3.5 h-3.5" />} />
+            <MetricRow label="Monthly capacity" value={formatNumber(result.maxMonthlyPageviews)} icon={<TrendingUp className="w-3.5 h-3.5" />} />
+            <MetricRow label="2× traffic needs" value={`${result.projections.traffic2x} workers`} icon={<ArrowUpRight className="w-3.5 h-3.5" />} />
+            <MetricRow label="5× traffic needs" value={`${result.projections.traffic5x} workers`} icon={<ArrowUpRight className="w-3.5 h-3.5" />} />
           </div>
         </div>
       </div>
+
+      {/* Breakdown */}
+      <div className="p-8 md:p-12 grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="space-y-4">
+          <p className="text-xs font-medium tracking-widest uppercase" style={{ color: "var(--color-fg-muted)" }}>
+            Worker breakdown
+          </p>
+          <div className="space-y-2">
+            {result.breakdown.map((item) => (
+              <div key={item.label} className="flex items-center gap-3">
+                <div
+                  className="w-2 h-2 shrink-0"
+                  style={{ background: item.color }}
+                />
+                <span className="text-sm flex-1" style={{ color: "var(--color-fg-secondary)" }}>
+                  {item.label}
+                </span>
+                <span className="text-sm font-mono font-medium">{item.workers}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <p className="text-xs font-medium tracking-widest uppercase" style={{ color: "var(--color-fg-muted)" }}>
+            Optimization tips
+          </p>
+          <div className="space-y-3">
+            {result.optimizationTips.slice(0, 5).map((tip, i) => (
+              <p key={i} className="text-sm leading-relaxed" style={{ color: "var(--color-fg-secondary)" }}>
+                {tip}
+              </p>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Under-provisioned warning */}
+      {isUnderProvisioned && currentLimit && (
+        <div
+          className="px-8 md:px-12 py-6 border-t flex items-start gap-3"
+          style={{
+            borderColor: "var(--color-danger)",
+            background: "rgba(220, 38, 38, 0.04)",
+          }}
+        >
+          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "var(--color-danger)" }} />
+          <div>
+            <p className="text-sm font-medium" style={{ color: "var(--color-danger)" }}>
+              Under-provisioned
+            </p>
+            <p className="text-sm mt-1" style={{ color: "var(--color-fg-secondary)" }}>
+              Your current host provides <strong>{currentLimit}</strong> workers, but you need <strong>{result.recommendedWorkers}</strong>.
+              You are <strong>{result.recommendedWorkers - currentLimit}</strong> workers short.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function MetricCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function MetricRow({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
   return (
-    <div className="rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 p-4 hover:bg-white/10 transition-colors">
-      <div className="flex items-center gap-2 text-slate-400 text-xs font-medium mb-1.5">
+    <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center gap-2" style={{ color: "var(--color-fg-muted)" }}>
         {icon}
-        {label}
+        <span className="text-xs">{label}</span>
       </div>
-      <p className="text-xl font-bold text-white">{value}</p>
+      <span className="text-sm font-mono font-medium">{value}</span>
     </div>
   );
 }

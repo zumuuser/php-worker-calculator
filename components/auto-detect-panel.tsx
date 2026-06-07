@@ -1,168 +1,179 @@
 "use client";
 
 import { DetectedTech } from "@/types";
-import { Cpu, Layers, Gauge, FileText, Shield, CheckCircle2, XCircle } from "lucide-react";
+import { Check, X, Globe, Zap, Box, Shield } from "lucide-react";
 
 interface Props {
   detected: DetectedTech;
+  domain: string;
 }
 
-function DetectionCard({
-  icon,
-  title,
-  children,
-  active,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
-  active: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-2xl border p-5 transition-all duration-300 ${
-        active
-          ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 shadow-lg shadow-slate-200/40 dark:shadow-none"
-          : "bg-slate-50/50 dark:bg-slate-800/30 border-slate-100 dark:border-slate-800 opacity-60"
-      }`}
-    >
-      <div className="flex items-center gap-2 mb-3">
-        {icon}
-        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{title}</span>
-        {active && <CheckCircle2 className="w-4 h-4 text-emerald-500 ml-auto" />}
-        {!active && <XCircle className="w-4 h-4 text-slate-300 ml-auto" />}
-      </div>
-      {children}
-    </div>
-  );
+interface PluginItem {
+  key: keyof DetectedTech;
+  label: string;
 }
 
-function Badge({ active, label }: { active: boolean; label: string }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
-        active
-          ? "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-100 dark:border-blue-800"
-          : "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 border border-slate-200 dark:border-slate-700"
-      }`}
-    >
-      {label}
-    </span>
-  );
-}
+const PLUGINS: PluginItem[] = [
+  { key: "hasWooCommerce", label: "WooCommerce" },
+  { key: "hasElementor", label: "Elementor" },
+  { key: "hasMemberPress", label: "MemberPress" },
+  { key: "hasLearnDash", label: "LearnDash" },
+  { key: "hasBuddyBoss", label: "BuddyBoss" },
+  { key: "hasContactForm7", label: "Contact Form 7" },
+  { key: "hasGravityForms", label: "Gravity Forms" },
+  { key: "hasYoast", label: "Yoast SEO" },
+  { key: "hasRankMath", label: "Rank Math" },
+  { key: "hasWPRocket", label: "WP Rocket" },
+  { key: "hasW3TotalCache", label: "W3 Total Cache" },
+  { key: "hasLiteSpeedCache", label: "LiteSpeed Cache" },
+  { key: "hasCloudflare", label: "Cloudflare" },
+];
 
-export default function AutoDetectPanel({ detected }: Props) {
-  const anyDetected =
-    detected.isWordPress ||
-    detected.hasWooCommerce ||
-    detected.hasElementor ||
-    detected.estimatedPages > 0 ||
-    detected.ttfb !== null;
-
-  if (!anyDetected) {
-    return (
-      <div className="bg-slate-50 dark:bg-slate-900/50 rounded-3xl border border-dashed border-slate-300 dark:border-slate-700 p-10 text-center">
-        <Cpu className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          No data detected yet. Enter a domain above and click Analyze, or skip and fill the form manually.
-        </p>
-      </div>
-    );
-  }
+export default function AutoDetectPanel({ detected, domain }: Props) {
+  const detectedPlugins = PLUGINS.filter((p) => detected[p.key]);
+  const notDetected = PLUGINS.filter((p) => !detected[p.key]);
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 shadow-xl shadow-slate-200/50 dark:shadow-none">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center">
-          <Cpu className="w-5 h-5 text-violet-600 dark:text-violet-400" />
-        </div>
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Detected Tech Stack</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Auto-populated from your site. Review and adjust below.
-          </p>
-        </div>
+    <div className="animate-fade-up">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="font-display text-2xl font-medium tracking-tight">
+          {domain}
+        </h2>
+        <span
+          className="text-xs font-medium tracking-widest uppercase px-2 py-1"
+          style={{
+            background: detected.isWordPress ? "var(--color-fg)" : "transparent",
+            color: detected.isWordPress ? "var(--color-bg)" : "var(--color-fg)",
+            border: "1px solid var(--color-fg)",
+          }}
+        >
+          {detected.isWordPress ? "WordPress" : "Unknown platform"}
+        </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <DetectionCard
-          icon={<Layers className="w-4 h-4 text-blue-500" />}
-          title="CMS & Builder"
-          active={detected.isWordPress || detected.hasWooCommerce || detected.hasElementor}
-        >
-          <div className="flex flex-wrap gap-2">
-            <Badge active={detected.isWordPress} label="WordPress" />
-            <Badge active={detected.hasWooCommerce} label="WooCommerce" />
-            <Badge active={detected.hasElementor} label="Elementor" />
+      <div
+        className="border-t grid grid-cols-1 lg:grid-cols-3 gap-0"
+        style={{ borderColor: "var(--color-border)" }}
+      >
+        {/* Detected Plugins */}
+        <div className="lg:col-span-2 border-b lg:border-b-0 lg:border-r p-6 space-y-4" style={{ borderColor: "var(--color-border)" }}>
+          <div className="flex items-center gap-2 mb-4">
+            <Box className="w-4 h-4" strokeWidth={1.5} style={{ color: "var(--color-fg-secondary)" }} />
+            <span className="text-xs font-medium tracking-widest uppercase" style={{ color: "var(--color-fg-secondary)" }}>
+              Detected plugins & tools
+            </span>
           </div>
-        </DetectionCard>
 
-        <DetectionCard
-          icon={<Shield className="w-4 h-4 text-emerald-500" />}
-          title="Membership & Forms"
-          active={detected.hasMemberPress || detected.hasLearnDash || detected.hasBuddyBoss || detected.hasGravityForms}
-        >
-          <div className="flex flex-wrap gap-2">
-            <Badge active={detected.hasMemberPress} label="MemberPress" />
-            <Badge active={detected.hasLearnDash} label="LearnDash" />
-            <Badge active={detected.hasBuddyBoss} label="BuddyBoss" />
-            <Badge active={detected.hasGravityForms} label="Gravity Forms" />
-            <Badge active={detected.hasContactForm7} label="CF7" />
-          </div>
-        </DetectionCard>
-
-        <DetectionCard
-          icon={<Gauge className="w-4 h-4 text-amber-500" />}
-          title="Performance"
-          active={!!detected.cachePlugin || detected.hasWPRocket || detected.hasCloudflare}
-        >
-          <div className="flex flex-wrap gap-2">
-            <Badge active={!!detected.cachePlugin} label={detected.cachePlugin || "No Cache"} />
-            <Badge active={detected.hasWPRocket} label="WP Rocket" />
-            <Badge active={detected.hasLiteSpeedCache} label="LiteSpeed" />
-            <Badge active={detected.hasCloudflare} label="Cloudflare" />
-          </div>
-        </DetectionCard>
-
-        <DetectionCard
-          icon={<FileText className="w-4 h-4 text-sky-500" />}
-          title="Site Scale"
-          active={detected.estimatedPages > 0 || detected.heavyPluginsCount > 0}
-        >
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-600 dark:text-slate-400">Pages</span>
-              <span className="font-bold text-slate-900 dark:text-white">{detected.estimatedPages.toLocaleString()}</span>
+          {detectedPlugins.length === 0 ? (
+            <p className="text-sm" style={{ color: "var(--color-fg-muted)" }}>
+              No known plugins detected. The site may use custom or undetectable tools.
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {detectedPlugins.map((p) => (
+                <div
+                  key={p.key}
+                  className="flex items-center gap-2 px-3 py-2 text-sm"
+                  style={{
+                    background: "var(--color-surface-raised)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  <Check className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--color-success)" }} strokeWidth={2.5} />
+                  <span className="truncate">{p.label}</span>
+                </div>
+              ))}
             </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-600 dark:text-slate-400">Heavy plugins</span>
-              <span className="font-bold text-slate-900 dark:text-white">{detected.heavyPluginsCount}</span>
-            </div>
-          </div>
-        </DetectionCard>
+          )}
 
-        <DetectionCard
-          icon={<Gauge className="w-4 h-4 text-rose-500" />}
-          title="Core Web Vitals"
-          active={detected.ttfb !== null || detected.lcp !== null}
-        >
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-600 dark:text-slate-400">TTFB</span>
-              <span className={`font-bold ${detected.ttfb && detected.ttfb > 800 ? "text-red-500" : "text-slate-900 dark:text-white"}`}>
-                {detected.ttfb ? `${detected.ttfb}ms` : "N/A"}
+          {notDetected.length > 0 && detectedPlugins.length > 0 && (
+            <div className="pt-2">
+              <p className="text-xs mb-2" style={{ color: "var(--color-fg-muted)" }}>
+                Not detected:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {notDetected.slice(0, 8).map((p) => (
+                  <span
+                    key={p.key}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs"
+                    style={{ color: "var(--color-fg-muted)" }}
+                  >
+                    <X className="w-3 h-3" strokeWidth={2} />
+                    {p.label}
+                  </span>
+                ))}
+                {notDetected.length > 8 && (
+                  <span className="text-xs" style={{ color: "var(--color-fg-muted)" }}>
+                    +{notDetected.length - 8} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Stats */}
+        <div className="p-6 space-y-6">
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Globe className="w-4 h-4" strokeWidth={1.5} style={{ color: "var(--color-fg-secondary)" }} />
+              <span className="text-xs font-medium tracking-widest uppercase" style={{ color: "var(--color-fg-secondary)" }}>
+                Site scale
               </span>
             </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-600 dark:text-slate-400">LCP</span>
-              <span className="font-bold text-slate-900 dark:text-white">{detected.lcp ? `${detected.lcp}ms` : "N/A"}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-600 dark:text-slate-400">CLS</span>
-              <span className="font-bold text-slate-900 dark:text-white">{detected.cls ?? "N/A"}</span>
+            <div className="space-y-3">
+              <div className="flex justify-between items-baseline text-sm">
+                <span style={{ color: "var(--color-fg-secondary)" }}>Estimated pages</span>
+                <span className="font-medium font-mono">{detected.estimatedPages > 0 ? detected.estimatedPages.toLocaleString() : "—"}</span>
+              </div>
+              <div className="flex justify-between items-baseline text-sm">
+                <span style={{ color: "var(--color-fg-secondary)" }}>Heavy plugins</span>
+                <span className="font-medium font-mono">{detected.heavyPluginsCount}</span>
+              </div>
             </div>
           </div>
-        </DetectionCard>
+
+          <div
+            className="border-t pt-6"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Zap className="w-4 h-4" strokeWidth={1.5} style={{ color: "var(--color-fg-secondary)" }} />
+              <span className="text-xs font-medium tracking-widest uppercase" style={{ color: "var(--color-fg-secondary)" }}>
+                Performance
+              </span>
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between items-baseline text-sm">
+                <span style={{ color: "var(--color-fg-secondary)" }}>TTFB</span>
+                <span className="font-medium font-mono">{detected.ttfb ? `${detected.ttfb}ms` : "—"}</span>
+              </div>
+              <div className="flex justify-between items-baseline text-sm">
+                <span style={{ color: "var(--color-fg-secondary)" }}>LCP</span>
+                <span className="font-medium font-mono">{detected.lcp ? `${detected.lcp}ms` : "—"}</span>
+              </div>
+              <div className="flex justify-between items-baseline text-sm">
+                <span style={{ color: "var(--color-fg-secondary)" }}>CLS</span>
+                <span className="font-medium font-mono">{detected.cls ?? "—"}</span>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="border-t pt-6"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Shield className="w-4 h-4" strokeWidth={1.5} style={{ color: "var(--color-fg-secondary)" }} />
+              <span className="text-xs font-medium tracking-widest uppercase" style={{ color: "var(--color-fg-secondary)" }}>
+                Caching
+              </span>
+            </div>
+            <p className="text-sm font-medium">
+              {detected.cachePlugin || "No cache plugin detected"}
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
