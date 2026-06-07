@@ -23,6 +23,11 @@ function getTier(workers: number): string {
 function getOptimizationTips(inputs: CalculatorInputs, result: CalculationResult): string[] {
   const tips: string[] = [];
 
+  if (!inputs.detectedTech.isPhpSite) {
+    tips.push("This site does not appear to use PHP. PHP workers only apply to PHP-based platforms like WordPress, Magento, Drupal, Laravel, etc.");
+    return tips;
+  }
+
   if (inputs.objectCacheEnabled !== "yes") {
     tips.push("Enable an object cache (Redis/Memcached) — this alone can reduce worker needs by 30%.");
   }
@@ -73,29 +78,63 @@ function inferSiteType(detected: DetectedTech): CalculatorInputs["siteType"] {
   return "blog";
 }
 
-function estimateTraffic(detected: DetectedTech): { pageviews: number; visitors: number } {
-  // Rough traffic estimates based on site characteristics
-  let pageviews = 50000;
-  let visitors = 25000;
-
-  if (detected.cms === "Shopify" || detected.hasWooCommerce) {
-    pageviews = 200000;
-    visitors = 100000;
-  }
-  if (detected.hasElementor || detected.heavyPluginsCount > 10) {
-    pageviews = Math.max(pageviews, 100000);
-    visitors = Math.max(visitors, 50000);
-  }
-  if (detected.estimatedPages > 100) {
-    pageviews = Math.max(pageviews, detected.estimatedPages * 500);
-    visitors = Math.max(visitors, detected.estimatedPages * 200);
-  }
-  if (detected.cms === "Next.js" || detected.cms === "Gatsby") {
-    pageviews = Math.max(pageviews, 150000);
-    visitors = Math.max(visitors, 75000);
+function estimateTraffic(detected: DetectedTech): { pageviews: number; visitors: number; confidence: 'low' | 'medium' | 'high'; source: string } {
+  // If we have a sitemap with real pages, use page count as primary signal
+  if (detected.estimatedPages > 10) {
+    const perPage = detected.isPhpSite && detected.hasWooCommerce ? 1500 : 800;
+    const pageviews = detected.estimatedPages * perPage;
+    return {
+      pageviews: Math.min(pageviews, 50_000_000),
+      visitors: Math.floor(Math.min(pageviews, 50_000_000) * 0.5),
+      confidence: 'medium',
+      source: `Estimated from ${detected.estimatedPages.toLocaleString()} pages detected in sitemap`,
+    };
   }
 
-  return { pageviews, visitors };
+  // Enterprise indicators: major CDN, many scripts, analytics
+  const hasEnterpriseCdn = detected.hasCloudflare || (detected.serverSoftware && detected.serverSoftware.toLowerCase().includes("akamai"));
+  const hasManyScripts = detected.scripts.length > 15;
+  const hasAnalytics = detected.analytics.length > 0;
+  const isMajorSite = hasEnterpriseCdn && (hasManyScripts || hasAnalytics);
+
+  // No sitemap — use CMS heuristics with much higher baselines
+  if (detected.cms === "Shopify" || detected.cms === "Magento") {
+    const base = isMajorSite ? 5_000_000 : 1_000_000;
+    return {
+      pageviews: base,
+      visitors: Math.floor(base * 0.5),
+      confidence: 'low',
+      source: 'E-commerce baseline estimate (no sitemap detected)',
+    };
+  }
+
+  if (detected.cms === "Next.js" || detected.cms === "Gatsby" || detected.cms === "Nuxt" || detected.cms === "SvelteKit") {
+    const base = isMajorSite ? 10_000_000 : 1_000_000;
+    return {
+      pageviews: base,
+      visitors: Math.floor(base * 0.5),
+      confidence: 'low',
+      source: `Jamstack baseline estimate (no sitemap detected${isMajorSite ? ', enterprise indicators present' : ''})`,
+    };
+  }
+
+  if (detected.isPhpSite) {
+    const base = isMajorSite ? 3_000_000 : 500_000;
+    return {
+      pageviews: base,
+      visitors: Math.floor(base * 0.5),
+      confidence: 'low',
+      source: `PHP site baseline estimate (no sitemap detected${isMajorSite ? ', enterprise indicators present' : ''})`,
+    };
+  }
+
+  const base = isMajorSite ? 2_000_000 : 500_000;
+  return {
+    pageviews: base,
+    visitors: Math.floor(base * 0.5),
+    confidence: 'low',
+    source: `Generic baseline estimate (no sitemap detected${isMajorSite ? ', enterprise indicators present' : ''})`,
+  };
 }
 
 export function buildAutoInputs(detected: DetectedTech, domain: string): CalculatorInputs {
@@ -187,6 +226,8 @@ export function calculateWorkers(inputs: CalculatorInputs): CalculationResult {
     { label: "Burst Headroom", workers: burstHeadroom, color: "#ffffff" },
   ];
 
+  const trafficEstimate = estimateTraffic(detectedTech);
+
   const result: CalculationResult = {
     recommendedWorkers,
     baseWorkers,
@@ -207,6 +248,8 @@ export function calculateWorkers(inputs: CalculatorInputs): CalculationResult {
       traffic5x: Math.ceil(recommendedWorkers * 3.5),
       traffic10x: Math.ceil(recommendedWorkers * 6),
     },
+    isPhpSite: detectedTech.isPhpSite,
+    trafficEstimate,
   };
 
   result.optimizationTips = getOptimizationTips(inputs, result);

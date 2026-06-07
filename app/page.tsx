@@ -10,18 +10,18 @@ import ApiKeySettings from "@/components/api-key-settings";
 import UrlInput from "@/components/url-input";
 import AutoDetectPanel from "@/components/auto-detect-panel";
 import InputForm from "@/components/input-form";
-import SimpleResult from "@/components/simple-result";
 import DetailedReport from "@/components/detailed-report";
 import HistoryDrawer from "@/components/history-drawer";
-import { Cpu, Code2, History, Settings, ArrowRight } from "lucide-react";
+import { Cpu, Code2, History, Settings, ArrowRight, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 const defaultDetected: DetectedTech = {
   cms: null, cmsVersion: null, phpVersion: null, theme: null, themeVersion: null,
-  isWordPress: false, hasWooCommerce: false, hasElementor: false, hasMemberPress: false,
+  isWordPress: false, isPhpSite: false, hasWooCommerce: false, hasElementor: false, hasMemberPress: false,
   hasLearnDash: false, hasBuddyBoss: false, hasContactForm7: false, hasGravityForms: false,
   hasYoast: false, hasRankMath: false, hasWPRocket: false, hasW3TotalCache: false,
   hasLiteSpeedCache: false, hasCloudflare: false, cachePlugin: null, heavyPluginsCount: 0,
   estimatedPages: 0, ttfb: null, lcp: null, cls: null, frameworks: [], plugins: [], serverSoftware: null,
+  scripts: [], analytics: [], metaDescription: null, responseHeaders: {}, statusCode: null,
 };
 
 const defaultStatus: ScanStatus = {
@@ -46,6 +46,7 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false);
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [justUpdated, setJustUpdated] = useState(false);
   const resultRef = useRef<HTMLDivElement>(null);
 
   const runCalculation = useCallback((data: CalculatorInputs) => {
@@ -64,6 +65,7 @@ export default function Home() {
     setResult(null);
     setShowDetailed(false);
     setShowForm(false);
+    setJustUpdated(false);
     try {
       const analysis: AnalysisResult = await analyzeSite(url);
       setDetected(analysis.tech);
@@ -91,6 +93,11 @@ export default function Home() {
     setInputs(data);
     runCalculation(data);
     setShowForm(false);
+    setJustUpdated(true);
+    setTimeout(() => setJustUpdated(false), 3000);
+    setTimeout(() => {
+      resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
   }, [runCalculation]);
 
   const handleLoadReport = useCallback((report: SavedReport) => {
@@ -114,13 +121,13 @@ export default function Home() {
             <span className="font-display text-lg font-medium tracking-tight">PHP Worker Calculator</span>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => setShowHistory(true)} className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium tracking-wide uppercase transition-colors border" style={{ color: "var(--color-muted)", borderColor: "var(--color-border)" }} onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)"; }} onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-muted)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)"; }}>
+            <button onClick={() => setShowHistory(true)} className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium tracking-wide uppercase transition-colors border" style={{ color: "var(--color-fg-muted)", borderColor: "var(--color-border)" }} onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)"; }} onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg-muted)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)"; }}>
               <History className="w-3.5 h-3.5" /><span className="hidden sm:inline">History</span>
             </button>
-            <button onClick={() => setShowApiSettings(true)} className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium tracking-wide uppercase transition-colors border" style={{ color: "var(--color-muted)", borderColor: "var(--color-border)" }} onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)"; }} onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-muted)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)"; }}>
+            <button onClick={() => setShowApiSettings(true)} className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium tracking-wide uppercase transition-colors border" style={{ color: "var(--color-fg-muted)", borderColor: "var(--color-border)" }} onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)"; }} onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg-muted)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)"; }}>
               <Settings className="w-3.5 h-3.5" /><span className="hidden sm:inline">APIs</span>
             </button>
-            <a href="https://github.com/zumuuser/php-worker-calculator" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium tracking-wide uppercase transition-colors border" style={{ color: "var(--color-muted)", borderColor: "var(--color-border)" }} onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)"; }} onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-muted)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)"; }}>
+            <a href="https://github.com/zumuuser/php-worker-calculator" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium tracking-wide uppercase transition-colors border" style={{ color: "var(--color-fg-muted)", borderColor: "var(--color-border)" }} onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-fg)"; }} onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-fg-muted)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)"; }}>
               <Code2 className="w-3.5 h-3.5" /><span className="hidden sm:inline">GitHub</span>
             </a>
             <ThemeToggle />
@@ -149,6 +156,22 @@ export default function Home() {
       {hasAnalyzed && result && (
         <section ref={resultRef} className="max-w-6xl mx-auto px-6 pb-8">
           <div className="border p-8 md:p-12" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+            {/* Non-PHP site warning */}
+            {!result.isPhpSite && (
+              <div className="mb-8 p-4 border flex items-start gap-3" style={{ borderColor: "var(--color-warn)", background: "rgba(202,138,4,0.04)" }}>
+                <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "var(--color-warn)" }} />
+                <div>
+                  <p className="text-sm font-medium" style={{ color: "var(--color-warn)" }}>
+                    This site does not appear to use PHP
+                  </p>
+                  <p className="text-sm mt-1" style={{ color: "var(--color-fg-secondary)" }}>
+                    Detected {detected.cms || "platform"} — PHP workers only apply to PHP-based platforms like WordPress, Magento, Drupal, Laravel, etc.
+                    The number shown is a theoretical estimate if this site were running on PHP.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="text-center space-y-4">
               <p className="text-xs font-medium tracking-widest uppercase" style={{ color: "var(--color-fg-muted)" }}>
                 Recommended for {domain}
@@ -172,10 +195,38 @@ export default function Home() {
                   {result.maxMonthlyPageviews.toLocaleString()} pageviews/mo capacity
                 </span>
               </div>
+
+              {/* Honest explanation */}
               <p className="text-sm max-w-xl mx-auto" style={{ color: "var(--color-fg-secondary)" }}>
-                Based on {detected.cms || "unknown CMS"} with {detected.plugins.length} detected plugins.
-                Traffic estimated at {inputs!.monthlyPageviews.toLocaleString()} pageviews/month.
+                {result.isPhpSite ? (
+                  <>
+                    Based on {detected.cms} with {detected.plugins.length} detected plugins.
+                    Traffic estimated at {inputs!.monthlyPageviews.toLocaleString()} pageviews/month
+                    <span className="inline-flex items-center gap-1 ml-1" style={{ color: "var(--color-fg-muted)" }}>
+                      ({result.trafficEstimate.confidence} confidence
+                      {result.trafficEstimate.confidence === 'low' && ' — refine for accuracy'})
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Detected {detected.cms || "platform"} with {detected.scripts.length} scripts/libraries.
+                    Traffic estimated at {inputs!.monthlyPageviews.toLocaleString()} pageviews/month
+                    <span className="inline-flex items-center gap-1 ml-1" style={{ color: "var(--color-fg-muted)" }}>
+                      ({result.trafficEstimate.confidence} confidence
+                      {result.trafficEstimate.confidence === 'low' && ' — refine for accuracy'})
+                    </span>
+                  </>
+                )}
               </p>
+
+              {/* Just updated indicator */}
+              {justUpdated && (
+                <div className="flex items-center justify-center gap-2 text-xs font-medium" style={{ color: "var(--color-success)" }}>
+                  <CheckCircle2 className="w-4 h-4" />
+                  Calculation updated with your custom values
+                </div>
+              )}
+
               <div className="flex items-center justify-center gap-4 pt-2">
                 <button onClick={() => setShowForm((s) => !s)} className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-medium tracking-wide uppercase transition-all border" style={{ borderColor: "var(--color-fg)", color: "var(--color-fg)" }}>
                   {showForm ? "Close refine" : "Refine calculation"}
@@ -196,13 +247,13 @@ export default function Home() {
           <AutoDetectPanel detected={detected} domain={domain} status={scanStatus} dns={dnsInfo} />
 
           {showForm && inputs && (
-            <div className="animate-fade-up">
+            <div key={`form-${inputs.domain}-${inputs.monthlyPageviews}`} className="animate-fade-up">
               <InputForm detected={detected} inputs={inputs} onSubmit={handleRefine} />
             </div>
           )}
 
           {showDetailed && result && inputs && (
-            <div className="animate-fade-up delay-100">
+            <div key={`report-${result.recommendedWorkers}-${result.maxConcurrentUsers}`} className="animate-fade-up delay-100">
               <DetailedReport result={result} inputs={inputs} />
             </div>
           )}

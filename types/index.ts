@@ -11,6 +11,7 @@ export interface DetectedTech {
   theme: string | null;
   themeVersion: string | null;
   isWordPress: boolean;
+  isPhpSite: boolean;
   hasWooCommerce: boolean;
   hasElementor: boolean;
   hasMemberPress: boolean;
@@ -33,6 +34,11 @@ export interface DetectedTech {
   frameworks: string[];
   plugins: DetectedPlugin[];
   serverSoftware: string | null;
+  scripts: string[];
+  analytics: string[];
+  metaDescription: string | null;
+  responseHeaders: Record<string, string>;
+  statusCode: number | null;
 }
 
 export interface ScanStatus {
@@ -106,6 +112,13 @@ export interface CalculationResult {
     traffic2x: number;
     traffic5x: number;
     traffic10x: number;
+  };
+  isPhpSite: boolean;
+  trafficEstimate: {
+    pageviews: number;
+    visitors: number;
+    confidence: 'low' | 'medium' | 'high';
+    source: string;
   };
 }
 
