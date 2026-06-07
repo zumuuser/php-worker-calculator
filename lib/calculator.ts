@@ -78,68 +78,19 @@ function inferSiteType(detected: DetectedTech): CalculatorInputs["siteType"] {
   return "blog";
 }
 
-function estimateTraffic(detected: DetectedTech): { pageviews: number; visitors: number; confidence: 'low' | 'medium' | 'high'; source: string } {
-  // If we have a sitemap with real pages, use page count as primary signal
-  if (detected.estimatedPages > 10) {
-    const perPage = detected.isPhpSite && detected.hasWooCommerce ? 1500 : 800;
-    const pageviews = detected.estimatedPages * perPage;
-    return {
-      pageviews: Math.min(pageviews, 50_000_000),
-      visitors: Math.floor(Math.min(pageviews, 50_000_000) * 0.5),
-      confidence: 'medium',
-      source: `Estimated from ${detected.estimatedPages.toLocaleString()} pages detected in sitemap`,
-    };
-  }
-
-  // Enterprise indicators: major CDN, many scripts, analytics
-  const hasEnterpriseCdn = detected.hasCloudflare || (detected.serverSoftware && detected.serverSoftware.toLowerCase().includes("akamai"));
-  const hasManyScripts = detected.scripts.length > 15;
-  const hasAnalytics = detected.analytics.length > 0;
-  const isMajorSite = hasEnterpriseCdn && (hasManyScripts || hasAnalytics);
-
-  // No sitemap — use CMS heuristics with much higher baselines
-  if (detected.cms === "Shopify" || detected.cms === "Magento") {
-    const base = isMajorSite ? 5_000_000 : 1_000_000;
-    return {
-      pageviews: base,
-      visitors: Math.floor(base * 0.5),
-      confidence: 'low',
-      source: 'E-commerce baseline estimate (no sitemap detected)',
-    };
-  }
-
-  if (detected.cms === "Next.js" || detected.cms === "Gatsby" || detected.cms === "Nuxt" || detected.cms === "SvelteKit") {
-    const base = isMajorSite ? 10_000_000 : 1_000_000;
-    return {
-      pageviews: base,
-      visitors: Math.floor(base * 0.5),
-      confidence: 'low',
-      source: `Jamstack baseline estimate (no sitemap detected${isMajorSite ? ', enterprise indicators present' : ''})`,
-    };
-  }
-
-  if (detected.isPhpSite) {
-    const base = isMajorSite ? 3_000_000 : 500_000;
-    return {
-      pageviews: base,
-      visitors: Math.floor(base * 0.5),
-      confidence: 'low',
-      source: `PHP site baseline estimate (no sitemap detected${isMajorSite ? ', enterprise indicators present' : ''})`,
-    };
-  }
-
-  const base = isMajorSite ? 2_000_000 : 500_000;
-  return {
-    pageviews: base,
-    visitors: Math.floor(base * 0.5),
-    confidence: 'low',
-    source: `Generic baseline estimate (no sitemap detected${isMajorSite ? ', enterprise indicators present' : ''})`,
-  };
-}
+/**
+ * Traffic cannot be detected from a website scan.
+ * We use conservative DEFAULT values as a starting point.
+ * These are NOT estimates — they are assumptions that the user should replace
+ * with real data from their analytics (Google Analytics, Plausible, etc.)
+ */
+const DEFAULT_TRAFFIC = {
+  pageviews: 100_000,
+  visitors: 50_000,
+};
 
 export function buildAutoInputs(detected: DetectedTech, domain: string): CalculatorInputs {
   const siteType = inferSiteType(detected);
-  const traffic = estimateTraffic(detected);
 
   let dynamicContentPercent = 20;
   let loggedInTrafficPercent = 5;
@@ -153,8 +104,8 @@ export function buildAutoInputs(detected: DetectedTech, domain: string): Calcula
 
   return {
     domain,
-    monthlyPageviews: traffic.pageviews,
-    monthlyUniqueVisitors: traffic.visitors,
+    monthlyPageviews: DEFAULT_TRAFFIC.pageviews,
+    monthlyUniqueVisitors: DEFAULT_TRAFFIC.visitors,
     pagesPerSession: 2.5,
     peakConcurrentUsers: null,
     peakPercentageOfDaily: 20,
@@ -226,8 +177,6 @@ export function calculateWorkers(inputs: CalculatorInputs): CalculationResult {
     { label: "Burst Headroom", workers: burstHeadroom, color: "#ffffff" },
   ];
 
-  const trafficEstimate = estimateTraffic(detectedTech);
-
   const result: CalculationResult = {
     recommendedWorkers,
     baseWorkers,
@@ -249,7 +198,12 @@ export function calculateWorkers(inputs: CalculatorInputs): CalculationResult {
       traffic10x: Math.ceil(recommendedWorkers * 6),
     },
     isPhpSite: detectedTech.isPhpSite,
-    trafficEstimate,
+    trafficEstimate: {
+      pageviews: monthlyPageviews,
+      visitors: monthlyUniqueVisitors,
+      confidence: 'low',
+      source: 'Default assumption — traffic cannot be detected from a site scan. Enter real data from your analytics.',
+    },
   };
 
   result.optimizationTips = getOptimizationTips(inputs, result);

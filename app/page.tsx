@@ -197,27 +197,26 @@ export default function Home() {
               </div>
 
               {/* Honest explanation */}
-              <p className="text-sm max-w-xl mx-auto" style={{ color: "var(--color-fg-secondary)" }}>
-                {result.isPhpSite ? (
-                  <>
-                    Based on {detected.cms} with {detected.plugins.length} detected plugins.
-                    Traffic estimated at {inputs!.monthlyPageviews.toLocaleString()} pageviews/month
-                    <span className="inline-flex items-center gap-1 ml-1" style={{ color: "var(--color-fg-muted)" }}>
-                      ({result.trafficEstimate.confidence} confidence
-                      {result.trafficEstimate.confidence === 'low' && ' — refine for accuracy'})
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    Detected {detected.cms || "platform"} with {detected.scripts.length} scripts/libraries.
-                    Traffic estimated at {inputs!.monthlyPageviews.toLocaleString()} pageviews/month
-                    <span className="inline-flex items-center gap-1 ml-1" style={{ color: "var(--color-fg-muted)" }}>
-                      ({result.trafficEstimate.confidence} confidence
-                      {result.trafficEstimate.confidence === 'low' && ' — refine for accuracy'})
-                    </span>
-                  </>
-                )}
-              </p>
+              <div className="max-w-xl mx-auto space-y-2">
+                <p className="text-sm" style={{ color: "var(--color-fg-secondary)" }}>
+                  {result.isPhpSite ? (
+                    <>
+                      Detected {detected.cms} with {detected.plugins.length} plugins.
+                      {" "}
+                    </>
+                  ) : (
+                    <>
+                      Detected {detected.cms || "platform"} with {detected.scripts.length} scripts/libraries.
+                      {" "}
+                    </>
+                  )}
+                  Using default traffic assumption of {inputs!.monthlyPageviews.toLocaleString()} pageviews/month.
+                </p>
+                <p className="text-xs" style={{ color: "var(--color-fg-muted)" }}>
+                  Traffic cannot be detected from a site scan. The number above is calculated from a conservative default.
+                  Click "Refine calculation" to enter your real analytics data for an accurate result.
+                </p>
+              </div>
 
               {/* Just updated indicator */}
               {justUpdated && (
